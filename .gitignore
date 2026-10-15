@@ -1,0 +1,7 @@
+# 工具 / 代理工作目录（非交付物）
+.trae/
+
+# 系统与编辑器杂项
+Thumbs.db
+.DS_Store
+desktop.ini

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>三国富甲天下 · 网页版</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ============ 开局设置界面 ============ -->
+<div id="startScreen" class="screen">
+  <div class="start-inner">
+    <h1 class="game-title">三国富甲天下</h1>
+    <p class="game-sub">大富翁 · 模拟经营 · 群雄争霸</p>
+
+    <div class="start-block">
+      <label class="start-label">选择剧本</label>
+      <div id="scenarioPick" class="pick-row"></div>
+    </div>
+
+    <div class="start-block">
+      <label class="start-label">选择你的势力</label>
+      <div id="factionPick" class="pick-row"></div>
+    </div>
+
+    <div class="start-block">
+      <label class="start-label">电脑势力数量</label>
+      <div id="aiPick" class="pick-row"></div>
+    </div>
+
+    <div class="start-block">
+      <label class="start-label">对局节奏</label>
+      <div id="pacePick" class="pick-row"></div>
+    </div>
+
+    <div class="start-actions">
+      <button id="btnStart" class="btn btn-primary btn-lg">开始游戏</button>
+      <button id="btnLoadGame" class="btn btn-ghost btn-lg">读取存档</button>
+    </div>
+
+    <div id="startHint" class="start-hint"></div>
+  </div>
+</div>
+
+<!-- ============ 游戏主界面 ============ -->
+<div id="app" class="app hidden">
+
+  <header id="topbar">
+    <div class="tb-left">
+      <span class="tb-logo">三国富甲天下</span>
+      <span class="tb-chip" id="chipScenario">剧本</span>
+      <span class="tb-chip" id="chipRound">第 1 回合</span>
+    </div>
+    <div class="tb-center">
+      <div id="turnBanner" class="turn-banner">—— 等待开始 ——</div>
+    </div>
+    <div class="tb-right">
+      <button id="btnHelp" class="btn btn-icon" title="玩法说明">?</button>
+      <button id="btnSave" class="btn btn-icon" title="存档">存</button>
+      <button id="btnExport" class="btn btn-icon" title="导出存档文本">导</button>
+      <button id="btnImport" class="btn btn-icon" title="导入存档文本">入</button>
+      <button id="btnMenu" class="btn btn-icon" title="返回主菜单">≡</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="board-wrap">
+      <div id="board" class="board">
+        <!-- 棋盘格子由 board.js 动态生成 -->
+        <div id="boardCenter" class="board-center">
+          <div id="centerInfo" class="center-info"></div>
+          <div id="diceBox" class="dice-box">
+            <div id="diceFace" class="dice-face">–</div>
+            <div id="diceHint" class="dice-hint">等待掷骰…</div>
+          </div>
+          <div id="boardActions" class="board-actions"></div>
+        </div>
+      </div>
+    </section>
+
+    <aside id="sidebar" class="sidebar">
+      <div class="side-section">
+        <div class="side-title">群雄割据</div>
+        <div id="factionList" class="faction-list"></div>
+      </div>
+      <div class="side-section side-grow">
+        <div class="side-title">战报 <span id="logFilterTag" class="log-filter"></span></div>
+        <div id="logList" class="log-list"></div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<!-- 悬浮提示 -->
+<div id="tooltip" class="tooltip hidden"></div>
+
+<!-- 通用弹窗层 -->
+<div id="overlay" class="overlay hidden">
+  <div id="modal" class="modal"></div>
+</div>
+
+<!-- 提示消息 -->
+<div id="toastBox" class="toast-box"></div>
+
+<!-- 战斗演出层 -->
+<div id="battleLayer" class="battle-layer hidden"></div>
+
+<script src="js/core.js"></script>
+<script src="js/data.cities.js"></script>
+<script src="js/data.generals.js"></script>
+<script src="js/data.cards.js"></script>
+<script src="js/data.factions.js"></script>
+<script src="js/data.scenarios.js"></script>
+<script src="js/state.js"></script>
+<script src="js/board.js"></script>
+<script src="js/battle.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
