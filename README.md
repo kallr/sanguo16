@@ -18,7 +18,20 @@
 python -m http.server 8123      # 然后访问 http://localhost:8123
 ```
 
-**方式三（线上部署）**：本项目无需编译，可直接用 GitHub Pages 托管 —— 在仓库 `Settings → Pages` 里选择 `main` 分支根目录即可。
+**方式三（线上部署）**：本项目无需编译，可直接用 GitHub Pages 托管 —— 见下方 [部署到 GitHub Pages](#部署到-github-pages)。
+
+---
+
+## 部署到 GitHub Pages
+
+本项目是纯静态页面，仓库根目录就是站点根目录，开启 Pages 后即可在线游玩。
+
+1. 打开仓库 **Settings → Pages**：<https://github.com/kallr/sanguo16/settings/pages>
+2. 在 **Build and deployment → Source** 选择 **Deploy from a branch**。
+3. **Branch** 选 `main`、目录选 **/ (root)**，点 **Save**。
+4. 等 1~2 分钟，页面顶部会显示访问地址：<https://kallr.github.io/sanguo16/>
+
+之后每次 `git push` 到 `main`，站点会自动更新。由于全部脚本与样式都走相对路径、也没有构建产物，**不需要额外配置任何部署工作流**。
 
 ---
 
@@ -148,6 +161,9 @@ python -m http.server 8123      # 然后访问 http://localhost:8123
 ```
 sanguo16/
 ├─ index.html            入口：脚本加载顺序、棋盘/侧栏/弹窗 DOM 骨架
+├─ README.md             本说明文档
+├─ LICENSE               MIT 许可证
+├─ docs/开发计划.md       设计与实现方案（技术选型、玩法还原、四阶段路线）
 ├─ css/style.css         布局、格子、棋子、动画、响应式
 └─ js/
    ├─ core.js            命名空间、工具函数、事件总线、Promise 动作队列（busy 锁）
@@ -187,3 +203,9 @@ sanguo16/
 - 没有音效与背景音乐。
 - 武将头像使用「姓氏首字 + 水墨底纹」的离线方案，未接入外部图片服务（本环境测试的图片接口对不同提示词返回同一张固定占位图，故不采用）。
 - 电脑 AI 采用简单可解释的打分规则（保命 → 买地 → 升级 → 招募 → 出兵），参数集中在 `js/ai.js` 的 `SG.AI_PARAMS`，便于调平衡。
+
+## 许可证
+
+本项目采用 [MIT 许可证](LICENSE)：可自由使用、修改、分发，仅需保留版权与许可声明。
+
+> 若希望换成其他许可证，替换 `LICENSE` 文件内容、并同步修改本节即可。
