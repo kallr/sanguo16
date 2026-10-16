@@ -11,13 +11,17 @@
   var pieceEls = {};     // factionId -> element
   var state = null;
 
+  /* tooltip、状态等与渲染方式无关的部分由 2D / 3D 两个渲染层共用，
+     因此这里用惰性查询，保证 3D 模式下未 init 也能正常弹提示。 */
+  function tipEl() { return tooltipEl || (tooltipEl = SG.$('#tooltip')); }
+
   /* 百分比定位（每格 = 100/11 %）*/
   var CELL = 100 / C.BOARD_W;
   function pct(n) { return (n * CELL) + '%'; }
 
-  /* ---- 3D 视角下的格子抬升高度（px）----
+  /* ---- 格子台基高度（px）----
      城池按等级长高形成错落地基，关隘略低，其余类型只有薄台基。
-     2D 视角下这些值由 CSS 忽略，不影响原观感。 */
+     2D 平面视角用不到，仅供 3D 渲染层（render3d.js）换算方块厚度。 */
   function tileZ(t) {
     if (t.type === 'city') return t.ownerId ? 6 + 7 * (Math.max(1, t.level) - 1) : 3;
     if (t.type === 'pass') return t.ownerId ? 6 : 3;
@@ -48,7 +52,6 @@
           el('div', { class: 'tile-name', text: t.name }),
           el('div', { class: 'tile-sub' })
         ]),
-        el('div', { class: 'tile-side' }),
         el('div', { class: 'tile-flag hidden' }),
         el('div', { class: 'tile-lv hidden' }),
         el('div', { class: 'tile-builds' })
@@ -94,7 +97,6 @@
       } else {
         node.style.removeProperty('--owner');
       }
-      node.style.setProperty('--z', tileZ(t) + 'px');
 
       /* 副标题：城池显示价格，其余显示类型说明 */
       if (t.type === 'city' || t.type === 'pass') {
@@ -136,9 +138,6 @@
   function setPiecePos(fid, index, instant) {
     var node = pieceEls[fid];
     if (!node) return;
-    /* 让棋子站在所在格子的台基上（3D 视角生效） */
-    var t = state.tiles[SG.util.mod(index, C.BOARD_N)];
-    if (t) node.style.setProperty('--pz', tileZ(t) + 'px');
     var xy = SG.data.tileXY(index);
     if (instant) node.style.transition = 'none';
     node.style.left = pct(xy.x);
@@ -285,21 +284,23 @@
   }
 
   function showTip(t, e) {
-    if (!tooltipEl) return;
-    tooltipEl.innerHTML = tipHTML(t);
-    tooltipEl.classList.remove('hidden');
+    var node = tipEl();
+    if (!node) return;
+    node.innerHTML = tipHTML(t);
+    node.classList.remove('hidden');
     moveTip(e);
   }
   function moveTip(e) {
-    if (!tooltipEl || tooltipEl.classList.contains('hidden')) return;
+    var node = tipEl();
+    if (!node || node.classList.contains('hidden')) return;
     var x = e.clientX + 16, y = e.clientY + 16;
-    var r = tooltipEl.getBoundingClientRect();
+    var r = node.getBoundingClientRect();
     if (x + r.width > window.innerWidth - 10) x = e.clientX - r.width - 12;
     if (y + r.height > window.innerHeight - 10) y = window.innerHeight - r.height - 10;
-    tooltipEl.style.left = Math.max(6, x) + 'px';
-    tooltipEl.style.top = Math.max(6, y) + 'px';
+    node.style.left = Math.max(6, x) + 'px';
+    node.style.top = Math.max(6, y) + 'px';
   }
-  function hideTip() { if (tooltipEl) tooltipEl.classList.add('hidden'); }
+  function hideTip() { var node = tipEl(); if (node) node.classList.add('hidden'); }
 
   /* ---------------- 中央信息区 ---------------- */
   function setCenterInfo(html) {
@@ -315,7 +316,9 @@
     (nodes || []).forEach(function (n) { box.appendChild(n); });
   }
 
-  SG.Board = {
+  /* 供 3D 渲染层（render3d.js）复用的公共部分 + 2D 渲染层本体。
+     两者实现完全相同的接口，由 main.js 依据当前视角在二者之间路由。 */
+  SG.Board2D = {
     init: init,
     render: render,
     setPiecePos: setPiecePos,
@@ -329,7 +332,11 @@
     setCenterInfo: setCenterInfo,
     setBoardActions: setBoardActions,
     hideTip: hideTip,
-    tipHTML: tipHTML
+    showTip: showTip,
+    moveTip: moveTip,
+    tipHTML: tipHTML,
+    setState: function (st) { state = st; },
+    tileZ: tileZ
   };
 
 })();

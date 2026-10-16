@@ -29,11 +29,69 @@
   }
 
   /* ---------------- 2D / 3D 视角 ----------------
-     默认：桌面端 3D、小屏 2D；用户可手动切换并记住选择。
-     切换只改 body 上的类名，渲染层与逻辑层完全不受影响。 */
+     两套渲染层（SG.Board2D 平面 DOM / SG.Board3D WebGL）暴露完全相同的
+     接口，这里按当前视角把 SG.Board 路由到其中之一，engine 层完全无感。
+     默认：桌面端 3D、小屏 2D；用户可手动切换并记住选择。 */
   var VIEW_KEY = 'sg_view_mode';
+  var viewMode = '2d';
+
+  var curState = null, curRoot = null;
+  var lastFid = null, lastHereIdx = null;
+  var glBroken = false;
+
+  function use3D() {
+    return !glBroken && viewMode === '3d' && SG.Board3D && SG.Board3D.available();
+  }
+  function R() { return use3D() ? SG.Board3D : SG.Board2D; }
+
+  /* 把棋盘按当前渲染层重新挂载（首次进入 / 切换视角 / 读档后调用） */
+  function remount() {
+    if (!curState) return;
+    var r = R();
+    if (r === SG.Board3D && r.init(curState, curRoot) === false) {
+      /* WebGL 初始化真的失败了：静默降级到 2D，不改写用户偏好 */
+      glBroken = true;
+      viewMode = '2d';
+      document.body.classList.remove('view-3d');
+      document.body.classList.add('view-2d');
+      if ($('#btnView')) $('#btnView').textContent = '2D';
+      SG.UI.toast('WebGL 初始化失败，已降级为 2D 视角', 'bad');
+      r = SG.Board2D;
+    }
+    if (r === SG.Board2D) r.init(curState, curRoot);
+    r.render();
+    curState.factions.forEach(function (f) { r.setPiecePos(f.id, f.pos, true); });
+    r.syncPieces();
+    r.focusPiece(lastFid);
+    r.markHere(lastHereIdx);
+    SG.Board2D.hideTip();
+  }
+
+  SG.Board = {
+    init: function (st, root) {
+      curState = st;
+      curRoot = root;
+      SG.Board2D.setState(st);   // tipHTML 等公共逻辑需要读到当前状态
+      remount();
+    },
+    render: function () { R().render(); },
+    setPiecePos: function (fid, i, instant) { R().setPiecePos(fid, i, instant); },
+    movePiece: function (fid, from, steps) { return R().movePiece(fid, from, steps); },
+    teleportPiece: function (fid, i) { R().teleportPiece(fid, i); },
+    focusPiece: function (fid) { lastFid = fid; R().focusPiece(fid); },
+    syncPieces: function () { R().syncPieces(); },
+    markHere: function (i) { lastHereIdx = i; R().markHere(i); },
+    /* 以下都是 DOM 覆层，与渲染方式无关，统一走 2D 层实现 */
+    setDice: function (v, h) { SG.Board2D.setDice(v, h); },
+    rolling: function (on, h) { SG.Board2D.rolling(on, h); },
+    setCenterInfo: function (html) { SG.Board2D.setCenterInfo(html); },
+    setBoardActions: function (nodes) { SG.Board2D.setBoardActions(nodes); },
+    hideTip: function () { SG.Board2D.hideTip(); },
+    tipHTML: function (t) { return SG.Board2D.tipHTML(t); }
+  };
 
   function applyView(mode) {
+    viewMode = mode;
     document.body.classList.toggle('view-3d', mode === '3d');
     document.body.classList.toggle('view-2d', mode === '2d');
     var b = $('#btnView');
@@ -41,18 +99,27 @@
     try { localStorage.setItem(VIEW_KEY, mode); } catch (e) { /* file:// 下可能被拒，忽略 */ }
   }
 
+  /* 返回是否需要提示“已降级为 2D” */
   function initView() {
     var saved = null;
     try { saved = localStorage.getItem(VIEW_KEY); } catch (e) { /* ignore */ }
     var small = window.matchMedia('(max-width: 900px)').matches;
-    applyView(saved || (small ? '2d' : '3d'));
+    var want = saved || (small ? '2d' : '3d');
+    var fellBack = false;
+    if (want === '3d' && !(SG.Board3D && SG.Board3D.available())) {
+      want = '2d';
+      fellBack = true;
+    }
+    applyView(want);
+    return fellBack;
   }
 
   /* ---------------- 事件绑定 ---------------- */
   function boot() {
-    initView();
+    var fellBack = initView();
     SG.UI.init();
     SG.UI.buildStartScreen();
+    if (fellBack) SG.UI.toast('当前环境不支持 WebGL，已使用 2D 视角', 'bad');
 
     $('#btnStart').addEventListener('click', function () {
       var s = SG.UI.startSel;
@@ -75,9 +142,14 @@
     });
 
     $('#btnView').addEventListener('click', function () {
-      var is3d = document.body.classList.contains('view-3d');
-      applyView(is3d ? '2d' : '3d');
-      SG.UI.toast(is3d ? '已切换到 2D 视角' : '已切换到 3D 视角', 'good');
+      var to3d = viewMode !== '3d';
+      if (to3d && !(SG.Board3D && SG.Board3D.available())) {
+        SG.UI.toast('当前环境不支持 WebGL，无法切换到 3D', 'bad');
+        return;
+      }
+      applyView(to3d ? '3d' : '2d');
+      remount();
+      SG.UI.toast(to3d ? '已切换到 3D 视角（拖拽旋转 / 滚轮缩放）' : '已切换到 2D 视角', 'good');
     });
 
     $('#btnHelp').addEventListener('click', function () {

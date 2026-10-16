@@ -137,22 +137,27 @@ body{
   padding:14px; overflow:hidden;
 }
 
-/* ---------- 棋盘舞台（承载透视，2D / 3D 共用） ---------- */
+/* ---------- 棋盘舞台（2D 平面棋盘 / 3D WebGL 画布共用） ---------- */
 .board-stage{
   position:relative;
   display:flex; align-items:center; justify-content:center;
   /* 2D：整个方块正好放进可视区 */
   width:min(calc(100vw - 380px), calc(100vh - 90px));
   height:min(calc(100vh - 90px), calc(100vw - 380px));
-  perspective:1500px;
-  perspective-origin:50% 42%;
 }
-/* 3D：棋盘绕 X 轴倾斜 50°，投影后竖向缩短约 cos50°≈0.64，
-   故舞台按 1/0.64≈1.52 放宽宽度、按 0.64 压低高度，保证倾斜后仍完整落在可视区内 */
+/* 3D：舞台即 WebGL 视口，铺满可用区域（投影交给相机，无需按倾斜折算） */
 body.view-3d .board-stage{
-  width:min(calc(100vw - 380px), calc((100vh - 90px) * 1.52));
-  height:min(calc(100vh - 90px), calc((100vw - 380px) * 0.66));
+  width:min(calc(100vw - 380px), 1400px);
+  height:calc(100vh - 90px);
 }
+/* 3D 下的 WebGL 画布：浮在 #board 之上，中央覆层再叠在它之上 */
+.gl-canvas{
+  position:absolute; inset:0; width:100%; height:100%;
+  display:none; border-radius:14px; touch-action:none; cursor:grab;
+}
+.gl-canvas:active{ cursor:grabbing; }
+body.view-3d .gl-canvas{ display:block; }
+body.view-3d #board{ display:none; }
 
 /* ---------- 棋盘 ---------- */
 .board{
@@ -164,13 +169,6 @@ body.view-3d .board-stage{
   border:2px solid var(--line);
   border-radius:14px;
   box-shadow:var(--shadow), inset 0 0 80px rgba(0,0,0,.6);
-  transition:transform .35s ease;
-}
-/* 3D 视角：棋盘倾斜成一张俯视桌面，并开启子元素的 3D 空间 */
-body.view-3d .board{
-  transform:rotateX(50deg);
-  transform-style:preserve-3d;
-  box-shadow:0 30px 70px rgba(0,0,0,.68), inset 0 0 80px rgba(0,0,0,.6);
 }
 .board::before{
   content:""; position:absolute; inset:0; border-radius:12px; pointer-events:none;
@@ -246,36 +244,7 @@ body.view-3d .board{
   50%{ box-shadow:0 0 0 3px rgba(217,178,106,.35); }
 }
 
-/* ---------- 格子立体化（仅 3D 视角） ---------- */
-.tile-side{ display:none; }
-body.view-3d .tile{ transform-style:preserve-3d; }
-/* 顶面按城池等级抬升，形成高低错落的地基 */
-body.view-3d .tile-inner{
-  transform:translateZ(var(--z,0px));
-  border-radius:4px;
-  box-shadow:0 0 12px rgba(0,0,0,.45);
-}
-body.view-3d .tile:hover .tile-inner{ transform:translateZ(calc(var(--z,0px) + 5px)); }
-/* 南侧壁：以底边为轴竖起 90°，高度等于抬升量，补足"厚度" */
-body.view-3d .tile-side{
-  display:block;
-  position:absolute; left:0; right:0; bottom:0;
-  height:var(--z,0px);
-  transform-origin:50% 100%;
-  transform:rotateX(-90deg);
-  background:linear-gradient(180deg,#2b2115,#0f0b08);
-  border-radius:0 0 3px 3px;
-  pointer-events:none;
-}
-body.view-3d .tile.owned .tile-side{
-  background:linear-gradient(180deg,var(--owner),#0f0b08);
-  opacity:.7;
-}
-/* 倾斜后文字会被纵向压缩，适当放大字号保可读性 */
-body.view-3d .tile-name{ font-size:13px; letter-spacing:0; }
-body.view-3d .tile-icon{ font-size:19px; }
-
-/* ---------- 棋子 ---------- */
+/* ---------- 棋子（2D 平面令牌） ---------- */
 .piece{
   position:absolute;
   width:calc(100% / 11); height:calc(100% / 11);
@@ -296,34 +265,7 @@ body.view-3d .tile-icon{ font-size:19px; }
 .piece.active .piece-dot{ animation:pieceBob .9s ease-in-out infinite; }
 @keyframes pieceBob{ 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-4px) } }
 
-/* 3D 视角：棋子随所在格子抬升，并反向倾斜成面向镜头的立牌 */
-body.view-3d .piece{
-  transform:translateZ(var(--pz,0px));
-  transform-style:preserve-3d;
-  align-items:flex-end;
-}
-body.view-3d .piece-dot{
-  width:46%; height:66%;
-  border-radius:6px 6px 5px 5px;
-  transform:rotateX(-50deg);
-  transform-origin:50% 100%;
-  border-width:1.5px;
-  font-size:11px;
-  box-shadow:0 0 10px -1px var(--pc), inset 0 0 0 1px rgba(0,0,0,.45);
-}
-body.view-3d .piece-dot::after{
-  content:"";
-  position:absolute; left:0; right:0; bottom:0; height:22%;
-  background:rgba(0,0,0,.3);
-  border-radius:0 0 4px 4px;
-}
-body.view-3d .piece.active .piece-dot{ animation:pieceBob3d .9s ease-in-out infinite; }
-@keyframes pieceBob3d{
-  0%,100%{ transform:rotateX(-50deg) translateY(0); }
-  50%{ transform:rotateX(-50deg) translateY(-9%); }
-}
-
-/* ---------- 棋盘中央（平面覆层，刻意不参与 3D 变换） ---------- */
+/* ---------- 棋盘中央（DOM 覆层，叠在 2D 棋盘 / 3D 画布之上） ---------- */
 .board-center{
   position:absolute; left:50%; top:50%;
   transform:translate(-50%,-50%);
@@ -582,7 +524,7 @@ body.view-3d .dice-cube.rolling{ animation:cubeRoll .6s linear infinite; }
   .layout{ flex-direction:column; }
   .board-wrap{ padding:8px; }
   .board-stage{ width:min(100%, 92vw); height:min(100%, 92vw); }
-  body.view-3d .board-stage{ width:min(100%, 92vw); height:min(100%, 61vw); }
+  body.view-3d .board-stage{ width:100%; height:min(78vw, 62vh); }
   .board{ max-width:none; max-height:none; }
   .sidebar{ flex:none; width:auto; padding:8px; }
   #topbar{ flex-wrap:wrap; height:auto; flex:none; padding:8px 10px; }

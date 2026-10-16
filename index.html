@@ -68,10 +68,11 @@
   <main class="layout">
     <section class="board-wrap">
       <div id="boardStage" class="board-stage">
+        <canvas id="glCanvas" class="gl-canvas"></canvas>
         <div id="board" class="board">
-          <!-- 棋盘格子由 board.js 动态生成 -->
+          <!-- 棋盘格子由 board.js 动态生成（2D 视角） -->
         </div>
-        <!-- 中央 UI 作为平面覆层浮在棋盘之上，不参与 3D 变换，保证按钮与骰子始终正对镜头 -->
+        <!-- 中央 UI 作为平面覆层浮在棋盘之上，保证按钮与骰子始终正对镜头 -->
         <div id="boardCenter" class="board-center">
           <div id="centerInfo" class="center-info"></div>
           <div id="diceBox" class="dice-box">
@@ -118,6 +119,7 @@
 <!-- 战斗演出层 -->
 <div id="battleLayer" class="battle-layer hidden"></div>
 
+<script src="js/lib/three.min.js"></script>
 <script src="js/core.js"></script>
 <script src="js/data.cities.js"></script>
 <script src="js/data.generals.js"></script>
@@ -126,6 +128,7 @@
 <script src="js/data.scenarios.js"></script>
 <script src="js/state.js"></script>
 <script src="js/board.js"></script>
+<script src="js/render3d.js"></script>
 <script src="js/battle.js"></script>
 <script src="js/ai.js"></script>
 <script src="js/ui.js"></script>
