@@ -119,12 +119,14 @@
 
   /* ---------------- 运行态 ---------------- */
   var ready = false;
-  var canvas, renderer, scene, camera, raf = null;
+  var canvas, renderer, scene, camera, raf = null, labelBox = null;
+  var _proj = new THREE.Vector3();
+  var _box3 = new THREE.Box3();
   var state = null;
   var tiles = [];                      // index -> { mesh, top, tex, canvas, ctx }
   var pieces = {};                     // factionId -> { sprite, cur, target, off, tex }
   var hoverFrame, hereFrame;
-  var hovered = -1, activeFid = null;
+  var hovered = -1, activeFid = null, hereIdx = -1;
   var ray = new THREE.Raycaster();
   var ndc = new THREE.Vector2();
   var drag = null;
@@ -273,10 +275,184 @@
     scene.add(mesh);
   }
 
-  /* ---------------- 场景搭建 ---------------- */
+  /* ============ 城池建筑 ============
+     《富甲天下2》的地图上每座城池都立着建筑，规模从「乡村」一路长到「王城」。
+     这里用 Box / Cylinder / Cone 程序化拼微缩建筑：等级越高体量越大、构件越多，
+     占领后染上势力色；其余格子各给一个小标志物。全部纯代码生成，无外部模型。 */
+  var CITY_TIER = ['乡村', '县城', '郡城', '都城', '王城'];
+  var BUILD_OFF_Z = -0.14;    // 建筑立在格面靠里的半幅，给近处的名字让位
+  var GEO = null;
+  var matCache = {};
+
+  function buildGeos() {
+    GEO = {
+      box: new THREE.BoxGeometry(1, 1, 1),
+      pyr: new THREE.ConeGeometry(0.5, 1, 4),     // 四棱锥：中式四坡顶
+      quad: new THREE.PlaneGeometry(1, 1)
+    };
+  }
+
+  /* 建材共享：同材质只建一次（颜色固定，组成也固定） */
+  function mat(kind, ownerColor) {
+    var col = { wall: 0x8f8266, roof: 0x7b4636, stone: 0x6d6558,
+      wood: 0x6a4a2b, gold: 0xc9a24d, thatch: 0xa08a4e }[kind];
+    if (kind === 'owner') col = ownerColor;
+    var key = kind + '|' + col;
+    if (!matCache[key]) matCache[key] = new THREE.MeshLambertMaterial({ color: col });
+    return matCache[key];
+  }
+  function flagMat(color) {
+    var key = 'flag|' + color;
+    if (!matCache[key]) {
+      matCache[key] = new THREE.MeshLambertMaterial({ color: color, side: THREE.DoubleSide });
+    }
+    return matCache[key];
+  }
+
+  /* 长方体（底面贴地，方便往上层叠） */
+  function box(g, w, h, d, x, y, z, material) {
+    var m = new THREE.Mesh(GEO.box, material);
+    m.scale.set(w, h, d);
+    m.position.set(x, y + h / 2, z);
+    g.add(m);
+    return m;
+  }
+  /* 四坡屋顶 */
+  function roof(g, w, h, x, y, z, material) {
+    var m = new THREE.Mesh(GEO.pyr, material);
+    m.scale.set(w, h, w);
+    m.position.set(x, y + h / 2, z);
+    m.rotation.y = Math.PI / 4;
+    g.add(m);
+    return m;
+  }
+  /* 旗杆 + 势力色旗面 */
+  function banner(g, poleH, x, y, z, color) {
+    box(g, 0.02, poleH, 0.02, x, y, z, mat('wood'));
+    var f = new THREE.Mesh(GEO.quad, flagMat(color));
+    f.scale.set(0.11, 0.07, 1);
+    f.position.set(x + 0.055, y + poleH - 0.04, z);
+    g.add(f);
+  }
+
+  /* 城池：未占领只留一块空地地基；占领后按规模等级长成城堡 */
+  function makeCity(t, ownerColor) {
+    var g = new THREE.Group();
+    var L = t.ownerId ? SG.util.clamp(t.level, 1, 5) : 0;
+    if (!L) {
+      box(g, 0.50, 0.045, 0.40, 0, 0, 0, mat('stone'));
+      box(g, 0.05, 0.20, 0.05, 0.15, 0.045, 0.10, mat('wood'));
+      return g;
+    }
+    var r = 0.20 + 0.016 * L;                 // 城墙半径
+    var wh = 0.055 + 0.022 * L;               // 城墙高
+    var kh = 0.05 + 0.05 * L;                 // 主楼高
+    var w = mat('wall'), rf = L >= 4 ? mat('owner', ownerColor) : mat('roof');
+    box(g, r * 2, wh, 0.045, 0, 0, -r, w);
+    box(g, r * 2, wh, 0.045, 0, 0, r, w);
+    box(g, 0.045, wh, r * 2, -r, 0, 0, w);
+    box(g, 0.045, wh, r * 2, r, 0, 0, w);
+    /* 角楼数量随规模增加（王城再加一座中段楼） */
+    var towers = [[-r, -r], [r, -r], [-r, r], [r, r], [0, -r], [0, r]];
+    for (var i = 0; i < Math.min(L, towers.length); i++) {
+      var c = towers[i];
+      box(g, 0.10, wh * 2.2, 0.10, c[0], 0, c[1], w);
+      roof(g, 0.155, 0.075, c[0], wh * 2.2, c[1], rf);
+    }
+    /* 主楼；郡城以上再加一层 */
+    box(g, 0.17, kh, 0.17, 0, 0, 0.01, w);
+    roof(g, 0.26, 0.10, 0, kh, 0.01, rf);
+    if (L >= 3) {
+      box(g, 0.11, kh * 0.5, 0.11, 0, kh + 0.10, 0.01, w);
+      roof(g, 0.17, 0.07, 0, kh * 1.5 + 0.10, 0.01, rf);
+    }
+    banner(g, 0.20 + 0.04 * L, 0.13, kh, -0.07, ownerColor);
+    return g;
+  }
+
+  /* 关隘：未占领是残关＋横梁；占领后是关楼 */
+  function makePass(t, ownerColor) {
+    var g = new THREE.Group();
+    if (!t.ownerId) {
+      box(g, 0.09, 0.16, 0.09, -0.18, 0, 0, mat('stone'));
+      box(g, 0.09, 0.16, 0.09, 0.18, 0, 0, mat('stone'));
+      box(g, 0.46, 0.05, 0.09, 0, 0.16, 0, mat('stone'));
+      return g;
+    }
+    box(g, 0.10, 0.30, 0.10, -0.20, 0, 0, mat('stone'));
+    box(g, 0.10, 0.30, 0.10, 0.20, 0, 0, mat('stone'));
+    roof(g, 0.16, 0.07, -0.20, 0.30, 0, mat('roof'));
+    roof(g, 0.16, 0.07, 0.20, 0.30, 0, mat('roof'));
+    box(g, 0.26, 0.18, 0.07, 0, 0, -0.03, mat('stone'));
+    roof(g, 0.32, 0.08, 0, 0.18, -0.03, mat('roof'));
+    banner(g, 0.18, 0, 0.26, -0.12, ownerColor);
+    return g;
+  }
+
+  /* 农田：谷仓 + 两垄田 */
+  function makeFarm() {
+    var g = new THREE.Group();
+    box(g, 0.20, 0.12, 0.20, -0.10, 0, -0.06, mat('thatch'));
+    roof(g, 0.26, 0.09, -0.10, 0.12, -0.06, mat('roof'));
+    box(g, 0.28, 0.02, 0.04, 0.11, 0, 0.12, mat('wood'));
+    box(g, 0.28, 0.02, 0.04, 0.11, 0, 0.22, mat('wood'));
+    return g;
+  }
+
+  /* 招贤馆：小楼 + 酒旗 */
+  function makeTavern() {
+    var g = new THREE.Group();
+    box(g, 0.22, 0.14, 0.16, -0.04, 0, 0, mat('wood'));
+    roof(g, 0.30, 0.10, -0.04, 0.14, 0, mat('roof'));
+    box(g, 0.02, 0.26, 0.02, 0.16, 0, -0.10, mat('wood'));
+    var f = new THREE.Mesh(GEO.quad, flagMat(0xc9a24d));
+    f.scale.set(0.10, 0.09, 1);
+    f.position.set(0.215, 0.20, -0.10);
+    g.add(f);
+    return g;
+  }
+
+  /* 事件 / 机会：木牌（颜色区分） */
+  function makeSign(color) {
+    var g = new THREE.Group();
+    box(g, 0.03, 0.20, 0.03, 0, 0, 0, mat('wood'));
+    var head = new THREE.Mesh(GEO.box, flagMat(color));
+    head.scale.set(0.20, 0.14, 0.03);
+    head.position.set(0, 0.27, 0);
+    head.rotation.z = 0.06;
+    g.add(head);
+    return g;
+  }
+
+  /* 起点：大旗 */
+  function makeStart() {
+    var g = new THREE.Group();
+    box(g, 0.05, 0.36, 0.05, -0.06, 0, 0, mat('wood'));
+    box(g, 0.34, 0.05, 0.26, 0, 0, 0, mat('stone'));
+    var f = new THREE.Mesh(GEO.quad, flagMat(0xb0392e));
+    f.scale.set(0.20, 0.13, 1);
+    f.position.set(0.04, 0.32, 0);
+    g.add(f);
+    return g;
+  }
+
+  function makeBuilding(t, ownerColor) {
+    switch (t.type) {
+      case 'city': return makeCity(t, ownerColor);
+      case 'pass': return makePass(t, ownerColor);
+      case 'farm': return makeFarm();
+      case 'tavern': return makeTavern();
+      case 'event': return makeSign(0xc9a24d);
+      case 'chance': return makeSign(0x7fb0c9);
+      case 'start': return makeStart();
+      default: return new THREE.Group();
+    }
+  }
+
   function setup() {
     canvas = SG.$('#glCanvas');
     if (!canvas) return false;
+    labelBox = SG.$('#tileLabels');
     try {
       renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
     } catch (e) { return false; }
@@ -295,6 +471,7 @@
     fill.position.set(-9, 7, -8);
     scene.add(fill);
 
+    buildGeos();
     buildBase();
     buildTerrain();
     buildFrames();
@@ -416,48 +593,59 @@
     ctx.strokeStyle = owner || 'rgba(69,55,35,.9)';
     roundRect(ctx, 4, 4, S - 8, S - 8, 12); ctx.stroke();
 
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    var icon = SG.data.TILE_ICON[t.type] || '·';
-    ctx.font = '30px ' + FONT;
-    ctx.fillStyle = 'rgba(233,220,196,.95)';
-    ctx.fillText(icon, S / 2 + 4, 38);
-
-    ctx.font = 'bold 25px ' + FONT;
-    ctx.fillStyle = '#e9dcc4';
-    ctx.fillText(t.name, S / 2 + 4, 74);
-
-    var sub = '';
+    /* 城池 / 关隘：上半天画一片地砖，像城内的院落（3D 建筑就立在这片地上）。
+       格名与规模改由浮在建筑上方的名牌（DOM）显示，不会被建筑挡住。 */
     if (t.type === 'city' || t.type === 'pass') {
-      sub = t.ownerId ? '' : ('$' + SG.util.num(t.price));
+      ctx.strokeStyle = 'rgba(233,220,196,.10)';
+      ctx.lineWidth = 1;
+      for (var gy = 14; gy < 80; gy += 13) {
+        ctx.beginPath(); ctx.moveTo(12, gy); ctx.lineTo(S - 12, gy); ctx.stroke();
+      }
+      for (var gx = 12; gx < S - 10; gx += 13) {
+        ctx.beginPath(); ctx.moveTo(gx, 10); ctx.lineTo(gx, 78); ctx.stroke();
+      }
+    }
+  }
+
+  /* ---------------- 城池名牌（DOM 覆层，浮在建筑上方） ---------------- */
+  function labelHTML(t) {
+    var sub = '', i;
+    if (t.ownerId) {
+      sub = t.type === 'city' ? CITY_TIER[SG.util.clamp(t.level, 1, 5) - 1] : TYPE_NAME[t.type];
+      for (i = 0; i < t.buildings.length; i++) sub += ' ' + SG.BUILD[t.buildings[i]].icon;
+    } else if (t.type === 'city' || t.type === 'pass') {
+      sub = '$' + SG.util.num(t.price);
     } else if (t.type === 'farm') {
       sub = '领粮';
+    } else if (t.type === 'tavern') {
+      sub = '可招募';
+    } else if (t.type === 'start') {
+      sub = '俸禄 300';
     }
-    if (!sub && t.ownerId) sub = TYPE_NAME[t.type];
-    if (sub) {
-      ctx.font = '17px ' + FONT;
-      ctx.fillStyle = '#a2967e';
-      ctx.fillText(sub, S / 2 + 4, 103);
-    }
+    return '<b>' + t.name + '</b>' + (sub ? '<i>' + sub + '</i>' : '');
+  }
 
-    /* 归属旗标 + 等级 + 建筑 */
-    if (t.ownerId) {
-      ctx.fillStyle = owner;
-      ctx.beginPath();
-      ctx.arc(S - 20, 20, 7, 0, Math.PI * 2);
-      ctx.fill();
-      if (t.type === 'city') {
-        ctx.font = 'bold 17px ' + FONT;
-        ctx.fillStyle = '#d9b26a';
-        ctx.fillText('Lv' + t.level, S - 26, S - 22);
+  /* 名牌显示策略：与往常一样只在需要时出现，避免 40 块牌子挤成一片
+     —— 悬浮中的格子、当前所在格一定显示；镜头拉近到格子够大时全显示。 */
+  function updateLabels() {
+    var w = canvas.clientWidth, h = canvas.clientHeight, i, rec, vis;
+    if (!w || !h) return;
+    var dist = camera.position.length();
+    var pxUnit = h / (2 * Math.tan(camera.fov * Math.PI / 360) * dist);
+    var showAll = pxUnit * TILE_W >= 58;         // 放大到每格约 58px 以上才全部铺开
+    for (i = 0; i < C.BOARD_N; i++) {
+      rec = tiles[i];
+      if (!rec || !rec.label) continue;
+      vis = showAll || rec.i === hovered || rec.i === hereIdx;
+      _proj.copy(rec.labelPos).project(camera);
+      if (!vis || _proj.z > 1 || _proj.x < -1.3 || _proj.x > 1.3 || _proj.y < -1.3 || _proj.y > 1.3) {
+        if (rec.label.style.display !== 'none') rec.label.style.display = 'none';
+        continue;
       }
-      if (t.buildings.length) {
-        ctx.textAlign = 'left';
-        ctx.font = '17px ' + FONT;
-        ctx.fillStyle = 'rgba(233,220,196,.8)';
-        ctx.fillText(t.buildings.map(function (b) { return SG.BUILD[b].icon; }).join(''), 16, S - 22);
-      }
+      rec.label.style.display = '';
+      rec.label.style.transform = 'translate(-50%,-100%) translate(' +
+        Math.round((_proj.x * 0.5 + 0.5) * w) + 'px,' + Math.round((-_proj.y * 0.5 + 0.5) * h) + 'px)';
+      rec.label.style.zIndex = String(500 - Math.round(_proj.z * 100));
     }
   }
 
@@ -486,8 +674,43 @@
       rec.top.position.set(w.x, 0, w.z);
       scene.add(rec.top);
 
+      /* 建筑挂在格子顶上，归属/规模变化时才重建 */
+      rec.bld = new THREE.Group();
+      rec.bld.position.set(w.x, 0, w.z + BUILD_OFF_Z);
+      rec.bldSig = '';
+      rec.bldH = 0.3;
+      rec.labelPos = new THREE.Vector3(w.x, 0.6, w.z);
+      scene.add(rec.bld);
+
+      /* 名牌：DOM 覆层，飘在建筑上方 */
+      if (labelBox) {
+        rec.label = document.createElement('div');
+        rec.label.className = 'tile-label';
+        labelBox.appendChild(rec.label);
+      }
+
       tiles[t.i] = rec;
     });
+  }
+
+  /* 建筑：只在「类型 + 归属 + 规模 + 建筑数」变化时重建，避免每帧重建网格 */
+  function refreshBuilding(rec, t, topY) {
+    rec.bld.position.y = topY + 0.004;
+    var sig = t.type + '|' + (t.ownerId || 0) + '|' + (t.ownerId ? t.level : 0) + '|' + t.buildings.length;
+    if (sig !== rec.bldSig) {
+      rec.bldSig = sig;
+      for (var i = rec.bld.children.length - 1; i >= 0; i--) rec.bld.remove(rec.bld.children[i]);
+      var color = t.ownerId ? new THREE.Color(factionColor(state, t.ownerId)).getHex() : 0xffffff;
+      rec.bld.add(makeBuilding(t, color));
+      /* 量出建筑实际高度：名牌要飘在它上面，才不会被自己或邻格的建筑挡住 */
+      _box3.setFromObject(rec.bld);
+      rec.bldH = Math.max(0.14, _box3.max.y - rec.bld.position.y);
+    }
+    rec.labelPos.set(rec.bld.position.x, rec.bld.position.y + rec.bldH + 0.13, rec.bld.position.z);
+    if (rec.label) {
+      rec.label.innerHTML = labelHTML(t);
+      rec.label.style.borderColor = t.ownerId ? factionColor(state, t.ownerId) : 'rgba(217,178,106,.45)';
+    }
   }
 
   /* 格子高度 / 归属配色 / 顶面文字，随状态刷新 */
@@ -505,6 +728,7 @@
       base.multiplyScalar(t.ownerId ? 0.72 : 0.9);
       rec.mesh.material.color.copy(base);
 
+      refreshBuilding(rec, t, h);
       drawTile(t, rec);
       rec.tex.needsUpdate = true;
     });
@@ -591,6 +815,8 @@
     }
 
     updateCamera();
+    camera.updateMatrixWorld();
+    updateLabels();
     renderer.render(scene, camera);
   }
 
@@ -685,6 +911,8 @@
       rec.mesh.geometry.dispose(); rec.mesh.material.dispose();
       rec.top.geometry.dispose(); rec.top.material.dispose();
       rec.tex.dispose();
+      if (rec.bld) scene.remove(rec.bld);
+      if (rec.label && rec.label.parentNode) rec.label.parentNode.removeChild(rec.label);
     });
     tiles = [];
     Object.keys(pieces).forEach(function (fid) {
@@ -762,9 +990,11 @@
 
   function markHere(index) {
     if (index === null || index === undefined) {
+      hereIdx = -1;
       hereFrame.visible = false;
       return;
     }
+    hereIdx = mod(index);
     placeFrame(hereFrame, index, 0.006);
     hereFrame.visible = true;
   }

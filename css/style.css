@@ -159,6 +159,23 @@ body.view-3d .board-stage{
 body.view-3d .gl-canvas{ display:block; }
 body.view-3d #board{ display:none; }
 
+/* 3D 视角下的城池名牌：浮在建筑上方，由 render3d.js 每帧投影定位，
+   不参与鼠标事件（悬浮拾取仍旧走 canvas） */
+.tile-labels{
+  position:absolute; inset:0; display:none; overflow:hidden;
+  border-radius:14px; pointer-events:none;
+}
+body.view-3d .tile-labels{ display:block; }
+.tile-label{
+  position:absolute; left:0; top:0; white-space:nowrap;
+  transform:translate(-50%,-100%);
+  background:rgba(16,12,8,.82); border:1px solid rgba(217,178,106,.45);
+  border-radius:4px; padding:0 5px; line-height:16px; font-size:12px;
+  color:var(--ink); text-shadow:0 1px 2px #000; letter-spacing:0;
+}
+.tile-label b{ color:var(--gold); }
+.tile-label i{ font-style:normal; color:var(--ink-dim); font-size:10px; margin-left:4px; }
+
 /* ---------- 棋盘 ---------- */
 .board{
   position:relative;
