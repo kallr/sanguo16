@@ -137,17 +137,40 @@ body{
   padding:14px; overflow:hidden;
 }
 
+/* ---------- 棋盘舞台（承载透视，2D / 3D 共用） ---------- */
+.board-stage{
+  position:relative;
+  display:flex; align-items:center; justify-content:center;
+  /* 2D：整个方块正好放进可视区 */
+  width:min(calc(100vw - 380px), calc(100vh - 90px));
+  height:min(calc(100vh - 90px), calc(100vw - 380px));
+  perspective:1500px;
+  perspective-origin:50% 42%;
+}
+/* 3D：棋盘绕 X 轴倾斜 50°，投影后竖向缩短约 cos50°≈0.64，
+   故舞台按 1/0.64≈1.52 放宽宽度、按 0.64 压低高度，保证倾斜后仍完整落在可视区内 */
+body.view-3d .board-stage{
+  width:min(calc(100vw - 380px), calc((100vh - 90px) * 1.52));
+  height:min(calc(100vh - 90px), calc((100vw - 380px) * 0.66));
+}
+
 /* ---------- 棋盘 ---------- */
 .board{
   position:relative;
-  /* 两轴用同一表达式，保证棋盘恒为正方形，且同时不超出视口宽高 */
-  width:min(calc(100vw - 380px), calc(100vh - 90px));
-  height:min(calc(100vw - 380px), calc(100vh - 90px));
+  width:100%; height:auto;
+  aspect-ratio:1 / 1;
   background:
     radial-gradient(circle at 50% 46%, #241d15 0%, #191410 62%, #100d0a 100%);
   border:2px solid var(--line);
   border-radius:14px;
   box-shadow:var(--shadow), inset 0 0 80px rgba(0,0,0,.6);
+  transition:transform .35s ease;
+}
+/* 3D 视角：棋盘倾斜成一张俯视桌面，并开启子元素的 3D 空间 */
+body.view-3d .board{
+  transform:rotateX(50deg);
+  transform-style:preserve-3d;
+  box-shadow:0 30px 70px rgba(0,0,0,.68), inset 0 0 80px rgba(0,0,0,.6);
 }
 .board::before{
   content:""; position:absolute; inset:0; border-radius:12px; pointer-events:none;
@@ -223,6 +246,35 @@ body{
   50%{ box-shadow:0 0 0 3px rgba(217,178,106,.35); }
 }
 
+/* ---------- 格子立体化（仅 3D 视角） ---------- */
+.tile-side{ display:none; }
+body.view-3d .tile{ transform-style:preserve-3d; }
+/* 顶面按城池等级抬升，形成高低错落的地基 */
+body.view-3d .tile-inner{
+  transform:translateZ(var(--z,0px));
+  border-radius:4px;
+  box-shadow:0 0 12px rgba(0,0,0,.45);
+}
+body.view-3d .tile:hover .tile-inner{ transform:translateZ(calc(var(--z,0px) + 5px)); }
+/* 南侧壁：以底边为轴竖起 90°，高度等于抬升量，补足"厚度" */
+body.view-3d .tile-side{
+  display:block;
+  position:absolute; left:0; right:0; bottom:0;
+  height:var(--z,0px);
+  transform-origin:50% 100%;
+  transform:rotateX(-90deg);
+  background:linear-gradient(180deg,#2b2115,#0f0b08);
+  border-radius:0 0 3px 3px;
+  pointer-events:none;
+}
+body.view-3d .tile.owned .tile-side{
+  background:linear-gradient(180deg,var(--owner),#0f0b08);
+  opacity:.7;
+}
+/* 倾斜后文字会被纵向压缩，适当放大字号保可读性 */
+body.view-3d .tile-name{ font-size:13px; letter-spacing:0; }
+body.view-3d .tile-icon{ font-size:19px; }
+
 /* ---------- 棋子 ---------- */
 .piece{
   position:absolute;
@@ -233,6 +285,7 @@ body{
   transition:left .13s linear, top .13s linear;
 }
 .piece-dot{
+  position:relative;
   width:48%; height:48%; border-radius:50%;
   background:var(--pc); color:#fff;
   border:2px solid rgba(255,255,255,.75);
@@ -243,18 +296,55 @@ body{
 .piece.active .piece-dot{ animation:pieceBob .9s ease-in-out infinite; }
 @keyframes pieceBob{ 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-4px) } }
 
-/* ---------- 棋盘中央 ---------- */
+/* 3D 视角：棋子随所在格子抬升，并反向倾斜成面向镜头的立牌 */
+body.view-3d .piece{
+  transform:translateZ(var(--pz,0px));
+  transform-style:preserve-3d;
+  align-items:flex-end;
+}
+body.view-3d .piece-dot{
+  width:46%; height:66%;
+  border-radius:6px 6px 5px 5px;
+  transform:rotateX(-50deg);
+  transform-origin:50% 100%;
+  border-width:1.5px;
+  font-size:11px;
+  box-shadow:0 0 10px -1px var(--pc), inset 0 0 0 1px rgba(0,0,0,.45);
+}
+body.view-3d .piece-dot::after{
+  content:"";
+  position:absolute; left:0; right:0; bottom:0; height:22%;
+  background:rgba(0,0,0,.3);
+  border-radius:0 0 4px 4px;
+}
+body.view-3d .piece.active .piece-dot{ animation:pieceBob3d .9s ease-in-out infinite; }
+@keyframes pieceBob3d{
+  0%,100%{ transform:rotateX(-50deg) translateY(0); }
+  50%{ transform:rotateX(-50deg) translateY(-9%); }
+}
+
+/* ---------- 棋盘中央（平面覆层，刻意不参与 3D 变换） ---------- */
 .board-center{
-  position:absolute; left:calc(100% / 11); top:calc(100% / 11);
-  width:calc(100% * 9 / 11); height:calc(100% * 9 / 11);
+  position:absolute; left:50%; top:50%;
+  transform:translate(-50%,-50%);
+  width:44%; max-width:460px;
   display:flex; flex-direction:column; align-items:center; justify-content:center;
-  gap:10px; padding:12px; text-align:center; pointer-events:none;
+  gap:10px; padding:16px 14px; text-align:center; pointer-events:none;
+  border-radius:14px;
+  background:linear-gradient(180deg, rgba(30,24,17,.86), rgba(15,12,8,.9));
+  border:1px solid var(--line);
+  box-shadow:var(--shadow);
+  backdrop-filter:blur(3px);
 }
 .board-center > *{ pointer-events:auto; }
 .center-info{ color:var(--ink-dim); font-size:13px; line-height:1.7; max-width:90%; }
 .center-info b{ color:var(--gold); }
 
 .dice-box{ display:flex; flex-direction:column; align-items:center; gap:6px; }
+body.view-3d .dice-box{ perspective:620px; }
+.dice-hint{ font-size:12px; color:var(--ink-dim); letter-spacing:1px; }
+
+/* 2D 视角的平面骰子 */
 .dice-face{
   width:64px; height:64px; border-radius:12px;
   background:linear-gradient(180deg,#f3e6c8,#d9c394);
@@ -264,7 +354,41 @@ body{
 }
 .dice-face.rolling{ animation:diceRoll .12s linear infinite; }
 @keyframes diceRoll{ 0%{ transform:rotate(-9deg) scale(1.02) } 50%{ transform:rotate(8deg) scale(.97) } 100%{ transform:rotate(-9deg) scale(1.02) } }
-.dice-hint{ font-size:12px; color:var(--ink-dim); letter-spacing:1px; }
+
+/* ---------- 3D 骰子：真正的立方体，六面各一个点数 ---------- */
+.dice-cube{ display:none; }
+body.view-3d .dice-face{ display:none; }
+body.view-3d .dice-cube{
+  display:block;
+  position:relative;
+  width:62px; height:62px;
+  transform-style:preserve-3d;
+  /* 基准视角：让立方体带一点倾角，读起来才有立体感 */
+  transform:rotateX(-24deg) rotateY(-30deg);
+  transition:transform .5s cubic-bezier(.3,1.3,.5,1);
+}
+/* 掷骰中的连续翻滚 */
+body.view-3d .dice-cube.rolling{ animation:cubeRoll .6s linear infinite; }
+@keyframes cubeRoll{
+  0%  { transform:rotateX(-24deg) rotateY(-30deg) rotateZ(0deg)   scale(1.06); }
+  100%{ transform:rotateX(-24deg) rotateY(-30deg) rotateZ(360deg) scale(1.06); }
+}
+.dc-face{
+  position:absolute; inset:0;
+  border-radius:10px;
+  background:linear-gradient(180deg,#f3e6c8,#d9c394);
+  color:#2a1e0c; font-size:26px; font-weight:800;
+  display:flex; align-items:center; justify-content:center;
+  border:1px solid #b99f6e;
+  backface-visibility:hidden;
+}
+/* 六面摆放：前后左右上下 */
+.dc-1{ transform:translateZ(31px); }
+.dc-6{ transform:rotateY(180deg) translateZ(31px); }
+.dc-2{ transform:rotateY(90deg)  translateZ(31px); }
+.dc-5{ transform:rotateY(-90deg) translateZ(31px); }
+.dc-3{ transform:rotateX(90deg)  translateZ(31px); }
+.dc-4{ transform:rotateX(-90deg) translateZ(31px); }
 
 .board-actions{ display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
 
@@ -457,7 +581,9 @@ body{
   .app{ height:auto; min-height:100vh; }
   .layout{ flex-direction:column; }
   .board-wrap{ padding:8px; }
-  .board{ width:min(100%, 92vw); height:auto; aspect-ratio:1 / 1; max-width:none; max-height:none; }
+  .board-stage{ width:min(100%, 92vw); height:min(100%, 92vw); }
+  body.view-3d .board-stage{ width:min(100%, 92vw); height:min(100%, 61vw); }
+  .board{ max-width:none; max-height:none; }
   .sidebar{ flex:none; width:auto; padding:8px; }
   #topbar{ flex-wrap:wrap; height:auto; flex:none; padding:8px 10px; }
   .turn-banner{ font-size:13px; }

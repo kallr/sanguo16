@@ -15,6 +15,15 @@
   var CELL = 100 / C.BOARD_W;
   function pct(n) { return (n * CELL) + '%'; }
 
+  /* ---- 3D 视角下的格子抬升高度（px）----
+     城池按等级长高形成错落地基，关隘略低，其余类型只有薄台基。
+     2D 视角下这些值由 CSS 忽略，不影响原观感。 */
+  function tileZ(t) {
+    if (t.type === 'city') return t.ownerId ? 6 + 7 * (Math.max(1, t.level) - 1) : 3;
+    if (t.type === 'pass') return t.ownerId ? 6 : 3;
+    return 2;
+  }
+
   /* ---------------- 构建 ---------------- */
   function init(st, root) {
     state = st;
@@ -39,6 +48,7 @@
           el('div', { class: 'tile-name', text: t.name }),
           el('div', { class: 'tile-sub' })
         ]),
+        el('div', { class: 'tile-side' }),
         el('div', { class: 'tile-flag hidden' }),
         el('div', { class: 'tile-lv hidden' }),
         el('div', { class: 'tile-builds' })
@@ -84,6 +94,7 @@
       } else {
         node.style.removeProperty('--owner');
       }
+      node.style.setProperty('--z', tileZ(t) + 'px');
 
       /* 副标题：城池显示价格，其余显示类型说明 */
       if (t.type === 'city' || t.type === 'pass') {
@@ -125,6 +136,9 @@
   function setPiecePos(fid, index, instant) {
     var node = pieceEls[fid];
     if (!node) return;
+    /* 让棋子站在所在格子的台基上（3D 视角生效） */
+    var t = state.tiles[SG.util.mod(index, C.BOARD_N)];
+    if (t) node.style.setProperty('--pz', tileZ(t) + 'px');
     var xy = SG.data.tileXY(index);
     if (instant) node.style.transition = 'none';
     node.style.left = pct(xy.x);
@@ -185,16 +199,36 @@
   }
 
   /* ---------------- 骰子 ---------------- */
+  /* 3D 立方体朝向表：把目标点数转到正面（正面为 1） */
+  var DICE_ROT = {
+    1: 'rotateX(0deg) rotateY(0deg)',
+    2: 'rotateX(0deg) rotateY(-90deg)',
+    3: 'rotateX(-90deg) rotateY(0deg)',
+    4: 'rotateX(90deg) rotateY(0deg)',
+    5: 'rotateX(0deg) rotateY(90deg)',
+    6: 'rotateX(0deg) rotateY(180deg)'
+  };
+  var DICE_BASE = 'rotateX(-24deg) rotateY(-30deg)';
+
   function setDice(value, hint) {
-    var face = SG.$('#diceFace');
+    var face = SG.$('#diceFace');     // 2D 视角的平面骰子
+    var cube = SG.$('#diceCube');     // 3D 视角的立方体骰子
     var h = SG.$('#diceHint');
-    if (face) face.textContent = value === null || value === undefined ? '–' : String(value);
+    var shown = (value === null || value === undefined) ? null : String(value);
+    if (face) face.textContent = shown === null ? '–' : shown;
+    if (cube) {
+      cube.style.transform = shown === null
+        ? DICE_BASE
+        : (DICE_BASE + ' ' + (DICE_ROT[shown] || DICE_ROT[1]));
+    }
     if (h && hint !== undefined) h.textContent = hint;
   }
   function rolling(on, hint) {
     var face = SG.$('#diceFace');
+    var cube = SG.$('#diceCube');
     var h = SG.$('#diceHint');
     if (face) face.classList.toggle('rolling', !!on);
+    if (cube) cube.classList.toggle('rolling', !!on);
     if (h && hint) h.textContent = hint;
   }
 

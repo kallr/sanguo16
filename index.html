@@ -56,6 +56,7 @@
       <div id="turnBanner" class="turn-banner">—— 等待开始 ——</div>
     </div>
     <div class="tb-right">
+      <button id="btnView" class="btn btn-icon" title="切换 2D / 3D 视角">3D</button>
       <button id="btnHelp" class="btn btn-icon" title="玩法说明">?</button>
       <button id="btnSave" class="btn btn-icon" title="存档">存</button>
       <button id="btnExport" class="btn btn-icon" title="导出存档文本">导</button>
@@ -66,11 +67,22 @@
 
   <main class="layout">
     <section class="board-wrap">
-      <div id="board" class="board">
-        <!-- 棋盘格子由 board.js 动态生成 -->
+      <div id="boardStage" class="board-stage">
+        <div id="board" class="board">
+          <!-- 棋盘格子由 board.js 动态生成 -->
+        </div>
+        <!-- 中央 UI 作为平面覆层浮在棋盘之上，不参与 3D 变换，保证按钮与骰子始终正对镜头 -->
         <div id="boardCenter" class="board-center">
           <div id="centerInfo" class="center-info"></div>
           <div id="diceBox" class="dice-box">
+            <div id="diceCube" class="dice-cube">
+              <div class="dc-face dc-1">1</div>
+              <div class="dc-face dc-2">2</div>
+              <div class="dc-face dc-3">3</div>
+              <div class="dc-face dc-4">4</div>
+              <div class="dc-face dc-5">5</div>
+              <div class="dc-face dc-6">6</div>
+            </div>
             <div id="diceFace" class="dice-face">–</div>
             <div id="diceHint" class="dice-hint">等待掷骰…</div>
           </div>

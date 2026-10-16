@@ -28,8 +28,29 @@
     SG.UI.showStart();
   }
 
+  /* ---------------- 2D / 3D 视角 ----------------
+     默认：桌面端 3D、小屏 2D；用户可手动切换并记住选择。
+     切换只改 body 上的类名，渲染层与逻辑层完全不受影响。 */
+  var VIEW_KEY = 'sg_view_mode';
+
+  function applyView(mode) {
+    document.body.classList.toggle('view-3d', mode === '3d');
+    document.body.classList.toggle('view-2d', mode === '2d');
+    var b = $('#btnView');
+    if (b) b.textContent = (mode === '3d' ? '3D' : '2D');
+    try { localStorage.setItem(VIEW_KEY, mode); } catch (e) { /* file:// 下可能被拒，忽略 */ }
+  }
+
+  function initView() {
+    var saved = null;
+    try { saved = localStorage.getItem(VIEW_KEY); } catch (e) { /* ignore */ }
+    var small = window.matchMedia('(max-width: 900px)').matches;
+    applyView(saved || (small ? '2d' : '3d'));
+  }
+
   /* ---------------- 事件绑定 ---------------- */
   function boot() {
+    initView();
     SG.UI.init();
     SG.UI.buildStartScreen();
 
@@ -51,6 +72,12 @@
         return;
       }
       loadGame(st);
+    });
+
+    $('#btnView').addEventListener('click', function () {
+      var is3d = document.body.classList.contains('view-3d');
+      applyView(is3d ? '2d' : '3d');
+      SG.UI.toast(is3d ? '已切换到 2D 视角' : '已切换到 3D 视角', 'good');
     });
 
     $('#btnHelp').addEventListener('click', function () {
