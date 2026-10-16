@@ -50,6 +50,56 @@
     chance: '机会', tavern: '招贤馆', farm: '农田'
   };
 
+  /* ============ 立体地图（地形沙盘）参数 ============
+     棋盘外环 40 格照旧，外环以内 9x9 的空地做成程序化地形浮雕：
+     山脉/丘陵走向对着四条边对应的地域（上=巴蜀、左=河北、右=江东、下=中原），
+     低于 WATER_Y 的地方"淹"成水面（长江/黄河/江东水乡）。
+     全部纯代码生成，不加载任何高度图或贴图文件。 */
+  var TERRAIN_SIZE = 9.0;         // 沙盘边长（世界单位，正好铺满外环以内）
+  var TERRAIN_SEG = 120;          // 细分段数（三角形数 = 2*SEG*SEG）
+  var TERRAIN_BASE = 0.105;       // 平原基准海拔
+  var WATER_Y = 0.075;            // 水面高度：地形低于此值即被水面覆盖
+  var RIM_IN = 3.90;              // 从这个半径开始向棋盘底板收边
+  var RIM_OUT = 4.50;             // 沙盘边缘（此处高度压到贴近底板）
+  var RIM_LOW = 0.10;             // 收边后保留的高度比例
+
+  /* 山脉/丘陵：中心走向折线 + 振幅 + 半宽（半宽收窄到 0.6~0.85，
+     起伏只集中在各自那一条带上，中间与东侧留出平川）。
+     取各条山脊的最大值而非累加，避免山脊交叠处堆得过高。 */
+  var RIDGES = [
+    { amp: 0.30, width: 0.62,                       // 巴蜀山地（远端）
+      pts: [[-3.6, -2.4], [-2.2, -3.3], [-0.4, -3.0], [1.2, -3.5], [2.4, -3.05]] },
+    { amp: 0.19, width: 0.70,                       // 河北丘陵（左侧）
+      pts: [[-2.2, 2.8], [-3.2, 1.0], [-2.8, -0.8], [-3.4, -2.2]] },
+    { amp: 0.055, width: 0.85,                      // 中原土丘
+      pts: [[-1.3, 1.3], [0.5, 0.8]] }
+  ];
+
+  /* 江东水乡：东侧整片压低成低洼水网（x 两端都收口，避免水贴到棋盘边缘） */
+  var EAST_DIP = { amp: 0.038, x0: 0.8, x1: 3.0, x2: 3.7, x3: 4.2, z0: 3.4, z1: 4.4 };
+  /* 湖底凹地：叠在低洼之上，形成更深的几片水 */
+  var BASINS = [
+    { x: 2.6, z: 0.4, r: 1.7, amp: -0.030 },
+    { x: 3.2, z: -1.7, r: 1.2, amp: -0.026 }
+  ];
+  var RIVER = { a: [-1.7, 2.3], b: [3.6, 3.1], bed: 0.030, half: 0.50 };
+
+  /* 高度 → 地表色（水面另行按水深取色） */
+  var LAND_STOPS = [
+    [0.02, '#4a5240'], [0.10, '#55603c'], [0.16, '#616b41'],
+    [0.24, '#7c7146'], [0.32, '#8d7c58'], [0.42, '#a89e86']
+  ];
+  var C_WATER_SHALLOW = new THREE.Color('#46768a');
+  var C_WATER_DEEP = new THREE.Color('#22485c');
+  /* 地域染色：让四条边各有各的地貌气质 */
+  var REGION_TINTS = [
+    { test: function (x, z) { return z < -1.4; }, color: new THREE.Color('#8a6b4a'), k: 0.16 }, // 巴蜀：土黄
+    { test: function (x, z) { return x < -1.4; }, color: new THREE.Color('#46583a'), k: 0.14 }, // 河北：青绿
+    { test: function (x, z) { return x > 1.4; },  color: new THREE.Color('#3a5a4c'), k: 0.16 }, // 江东：水绿
+    { test: function (x, z) { return z > 1.4; },  color: new THREE.Color('#6d6238'), k: 0.16 }  // 中原：黄土
+  ];
+  var _tmpColor = new THREE.Color();
+
   /* ---------------- WebGL 能力检测 ---------------- */
   var _av = null;
   function available() {
@@ -109,6 +159,120 @@
     return tx;
   }
 
+  /* ---------------- 立体地形（程序化 heightmap） ----------------
+     世界坐标约定与格子一致：x 向右为江东、x 向左为河北、
+     z 向镜头（屏幕下方）为中原、z 远离镜头（屏幕上方）为巴蜀。
+  ---------------------------------------------------------------- */
+  function smoothstep(e0, e1, x) {
+    var t = SG.util.clamp((x - e0) / (e1 - e0), 0, 1);
+    return t * t * (3 - 2 * t);
+  }
+
+  /* 点到线段的距离 */
+  function segDist(px, pz, a, b) {
+    var vx = b[0] - a[0], vz = b[1] - a[1];
+    var wx = px - a[0], wz = pz - a[1];
+    var L2 = vx * vx + vz * vz;
+    var t = L2 ? SG.util.clamp((wx * vx + wz * vz) / L2, 0, 1) : 0;
+    var dx = wx - t * vx, dz = wz - t * vz;
+    return Math.sqrt(dx * dx + dz * dz);
+  }
+
+  /* 点到折线（山脊走向线）的最短距离 */
+  function polyDist(x, z, pts) {
+    var best = Infinity;
+    for (var i = 0; i < pts.length - 1; i++) {
+      var d = segDist(x, z, pts[i], pts[i + 1]);
+      if (d < best) best = d;
+    }
+    return best;
+  }
+
+  /* 原始地形高度（未收边、未淹水） */
+  function terrainHeight(x, z) {
+    var h = TERRAIN_BASE, i;
+    var relief = 0;
+    for (i = 0; i < RIDGES.length; i++) {
+      var r = RIDGES[i];
+      var d = polyDist(x, z, r.pts);
+      var v = r.amp * Math.exp(-(d * d) / (2 * r.width * r.width));
+      if (v > relief) relief = v;   // 取最大值，山脊交叠处不会叠加过高
+    }
+    h += relief;
+
+    for (i = 0; i < BASINS.length; i++) {
+      var b = BASINS[i];
+      var dx = x - b.x, dz = z - b.z;
+      var u = Math.sqrt(dx * dx + dz * dz) / b.r;
+      if (u < 1) { var w = 1 - u * u; h += b.amp * w * w; }   // 碗形凹陷
+    }
+
+    /* 江东水乡：东侧整片压低成低洼水网 */
+    var sx = smoothstep(EAST_DIP.x0, EAST_DIP.x1, x) * (1 - smoothstep(EAST_DIP.x2, EAST_DIP.x3, x));
+    var sz = 1 - smoothstep(EAST_DIP.z0, EAST_DIP.z1, Math.abs(z));
+    h -= EAST_DIP.amp * sx * sz;
+
+    /* 黄河：靠近河道中心线时把地面压到河床高度 */
+    var dr = segDist(x, z, RIVER.a, RIVER.b);
+    var rw = 1 - smoothstep(0, RIVER.half, dr);
+    h = h * (1 - rw) + RIVER.bed * rw;
+    return h;
+  }
+
+  /* 顶点最终高度：低于水面则压平到水面，靠近棋盘边缘则向底板收边 */
+  function terrainVertex(x, z) {
+    var h = terrainHeight(x, z);
+    if (h < WATER_Y) return { y: WATER_Y, water: true, h0: h };
+    var u = Math.max(Math.abs(x), Math.abs(z));
+    var f = 1 - (1 - RIM_LOW) * smoothstep(RIM_IN, RIM_OUT, u);
+    return { y: h * f, water: false, h0: h };
+  }
+
+  /* 顶点颜色：水面按水深取蓝，陆地按海拔取色再按地域染色 */
+  function terrainColor(t, x, z, out) {
+    var i, a, b, k;
+    if (t.water) {
+      k = SG.util.clamp((WATER_Y - t.h0) / 0.045, 0, 1);
+      return out.copy(C_WATER_SHALLOW).lerp(C_WATER_DEEP, k);
+    }
+    out.set(LAND_STOPS[0][1]);
+    for (i = 1; i < LAND_STOPS.length; i++) {
+      if (t.y <= LAND_STOPS[i][0]) {
+        a = LAND_STOPS[i - 1]; b = LAND_STOPS[i];
+        k = SG.util.clamp((t.y - a[0]) / (b[0] - a[0]), 0, 1);
+        out.set(a[1]).lerp(_tmpColor.set(b[1]), k);
+        break;
+      }
+      out.set(LAND_STOPS[i][1]);
+    }
+    for (i = 0; i < REGION_TINTS.length; i++) {
+      if (REGION_TINTS[i].test(x, z)) { out.lerp(REGION_TINTS[i].color, REGION_TINTS[i].k); break; }
+    }
+    return out;
+  }
+
+  function buildTerrain() {
+    var geo = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, TERRAIN_SEG, TERRAIN_SEG);
+    var pos = geo.attributes.position;
+    var colors = new Float32Array(pos.count * 3);
+    var col = new THREE.Color();
+    /* PlaneGeometry 在局部 XY 平面：局部 x = 世界 x，局部 y = -世界 z，局部 z 稍后旋转成世界 y */
+    for (var i = 0; i < pos.count; i++) {
+      var wx = pos.getX(i), wz = -pos.getY(i);
+      var t = terrainVertex(wx, wz);
+      pos.setZ(i, t.y);
+      terrainColor(t, wx, wz, col);
+      colors[i * 3] = col.r;
+      colors[i * 3 + 1] = col.g;
+      colors[i * 3 + 2] = col.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.computeVertexNormals();
+    geo.rotateX(-Math.PI / 2);   // 让局部 z（高度）变成世界 y
+    var mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    scene.add(mesh);
+  }
+
   /* ---------------- 场景搭建 ---------------- */
   function setup() {
     canvas = SG.$('#glCanvas');
@@ -132,6 +296,7 @@
     scene.add(fill);
 
     buildBase();
+    buildTerrain();
     buildFrames();
 
     /* 交互：拖拽环绕、滚轮缩放、悬浮高亮 */
