@@ -67,7 +67,11 @@
     { x: 2.5, z: -2.25, r: 1.2, amp: 0.085 },
     { x: 0.5, z: 2.25, r: 1.0, amp: 0.065 },
     { x: 3.4, z: 0, r: 1.0, amp: 0.070 },
-    { x: -3.0, z: 2.25, r: 0.9, amp: 0.060 }
+    { x: -3.0, z: 2.25, r: 0.9, amp: 0.060 },
+    { x: -4.0, z: 2.25, r: 0.9, amp: 0.070 },
+    { x: 1.2, z: 0, r: 0.8, amp: 0.055 },
+    { x: -0.9, z: -2.25, r: 0.9, amp: 0.065 },
+    { x: 4.2, z: -2.25, r: 0.8, amp: 0.060 }
   ];
   /* 小水塘（原版地图上零星的水面），落在草带里、且避开土坡 */
   var PONDS = [
@@ -521,52 +525,60 @@
 
   /* ---------------- 路旁装饰：圆冠树与旗杆 ---------------- */
   function freeSpot(x, z) {
-    for (var i = 0; i < C.BOARD_N; i++) {
-      var w = tileWorld(i);
-      if (Math.abs(w.x - x) < 1.0 && Math.abs(w.z - z) < 1.0) return false;
+    if (Math.abs(x) > TERRAIN_W / 2 - 0.35 || Math.abs(z) > TERRAIN_D / 2 - 0.35) return false;
+    var i, w, dx, dz;
+    for (i = 0; i < C.BOARD_N; i++) {
+      w = tileWorld(i);
+      dx = w.x - x; dz = w.z - z;
+      if (dx * dx + dz * dz < 0.95 * 0.95) return false;    // 别压到格子/路面上
     }
     return !terrainVertex(x, z).water;
   }
 
+  /* 每段路的左右两侧各试 3 个位置，交替种树 / 立旗杆，避开格子与水塘 */
   function buildScenery() {
     var trunkMat = new THREE.MeshLambertMaterial({ color: 0x6b4a2c });
     var leafMat = new THREE.MeshLambertMaterial({ color: 0x4d7a39 });
     var poleMat = new THREE.MeshLambertMaterial({ color: 0x6a4a2b });
     var flagRed = new THREE.MeshLambertMaterial({ color: 0xb0392e, side: THREE.DoubleSide });
-    var pts = PATH_PTS, i, s;
+    var pts = PATH_PTS, i, k, s;
     for (i = 0; i < pts.length - 1; i++) {
       var a = pts[i], b = pts[i + 1];
       var dx = b[0] - a[0], dz = b[1] - a[1];
       var L = Math.sqrt(dx * dx + dz * dz) || 1;
       var nx = -dz / L, nz = dx / L;                       // 路的法向
-      for (s = 0; s < 2; s++) {
-        var t = s === 0 ? 0.3 : 0.7;
-        var side = ((i + s) % 2 === 0) ? 1 : -1;
-        var qx = a[0] + dx * t + nx * side * 0.95;
-        var qz = a[1] + dz * t + nz * side * 0.95;
-        if (!freeSpot(qx, qz)) continue;
-        var gy = terrainVertex(qx, qz).y;
-        if ((i + s) % 3 === 0) {
-          /* 旗杆 */
-          var pole = new THREE.Mesh(GEO.box, poleMat);
-          pole.scale.set(0.03, 0.42, 0.03);
-          pole.position.set(qx, gy + 0.21, qz);
-          scene.add(pole);
-          var fl = new THREE.Mesh(GEO.quad, flagRed);
-          fl.scale.set(0.16, 0.10, 1);
-          fl.position.set(qx + 0.08, gy + 0.35, qz);
-          scene.add(fl);
-        } else {
-          /* 圆冠树：树干 + 球形树冠 */
-          var trunk = new THREE.Mesh(GEO.box, trunkMat);
-          trunk.scale.set(0.06, 0.16, 0.06);
-          trunk.position.set(qx, gy + 0.08, qz);
-          scene.add(trunk);
-          var leaf = new THREE.Mesh(GEO.sphere, leafMat);
-          var sc = 0.42 + ((i + s) % 3) * 0.07;
-          leaf.scale.set(sc, sc * 0.85, sc);
-          leaf.position.set(qx, gy + 0.16 + sc * 0.42, qz);
-          scene.add(leaf);
+      for (k = 0; k < 3; k++) {
+        var t = 0.18 + 0.32 * k;
+        for (s = -1; s <= 1; s += 2) {
+          var seed = i * 3 + k * 5 + (s > 0 ? 1 : 0);
+          if (seed % 5 === 4) continue;                   // 留些空位，别铺太满
+          var off = (seed % 3 === 1) ? 1.15 : 1.55;
+          var qx = a[0] + dx * t + nx * s * off;
+          var qz = a[1] + dz * t + nz * s * off;
+          if (!freeSpot(qx, qz)) continue;
+          var gy = terrainVertex(qx, qz).y;
+          if (seed % 3 === 0) {
+            /* 旗杆 */
+            var pole = new THREE.Mesh(GEO.box, poleMat);
+            pole.scale.set(0.03, 0.42, 0.03);
+            pole.position.set(qx, gy + 0.21, qz);
+            scene.add(pole);
+            var fl = new THREE.Mesh(GEO.quad, flagRed);
+            fl.scale.set(0.16, 0.10, 1);
+            fl.position.set(qx + 0.08, gy + 0.35, qz);
+            scene.add(fl);
+          } else {
+            /* 圆冠树：树干 + 球形树冠 */
+            var trunk = new THREE.Mesh(GEO.box, trunkMat);
+            trunk.scale.set(0.06, 0.16, 0.06);
+            trunk.position.set(qx, gy + 0.08, qz);
+            scene.add(trunk);
+            var leaf = new THREE.Mesh(GEO.sphere, leafMat);
+            var sc = 0.40 + (seed % 3) * 0.08;
+            leaf.scale.set(sc, sc * 0.85, sc);
+            leaf.position.set(qx, gy + 0.16 + sc * 0.42, qz);
+            scene.add(leaf);
+          }
         }
       }
     }

@@ -28,11 +28,55 @@
     return 2;
   }
 
+  /* ---------------- 2D 地图底纹 ----------------
+     平面视角也用同一套路网坐标画一张底图（草地 + 石板路），
+     这样 2D 下也能看出这是一张「地图」而不是空方格板。
+     画在 canvas 上再转 dataURL，不引入任何图片文件。 */
+  function buildMapBackdrop() {
+    if (!boardEl) return;
+    var D = SG.data;
+    var W = 640, H = Math.round(640 * D.MAP_D / D.MAP_W);
+    var cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    var ctx = cv.getContext('2d');
+    var g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#5f7c46');
+    g.addColorStop(0.55, '#6d8a4b');
+    g.addColorStop(1, '#5a7542');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    for (var n = 0; n < 1400; n++) {
+      ctx.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,.045)' : 'rgba(0,0,0,.05)';
+      ctx.fillRect(Math.random() * W, Math.random() * H, 2, 2);
+    }
+    /* 石板路：先描深色路肩，再铺路面 */
+    var pts = D.pathPoints();
+    function map(p) {
+      return [(p[0] / D.MAP_W + 0.5) * W, (p[1] / D.MAP_D + 0.5) * H];
+    }
+    var roadW = 0.86 / D.MAP_W * W;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    [[roadW + 10, 'rgba(28,24,18,.5)'], [roadW, '#6f6a5d']].forEach(function (st) {
+      ctx.lineWidth = st[0];
+      ctx.strokeStyle = st[1];
+      ctx.beginPath();
+      pts.forEach(function (p, i) {
+        var q = map(p);
+        if (i === 0) ctx.moveTo(q[0], q[1]); else ctx.lineTo(q[0], q[1]);
+      });
+      ctx.stroke();
+    });
+    boardEl.style.backgroundImage = 'url(' + cv.toDataURL('image/png') + ')';
+    boardEl.style.backgroundSize = '100% 100%';
+  }
+
   /* ---------------- 构建 ---------------- */
   function init(st, root) {
     state = st;
     boardEl = root || SG.$('#board');
     tooltipEl = SG.$('#tooltip');
+    buildMapBackdrop();
 
     /* 清掉旧棋子/旧格子，保留中央区 */
     SG.$$('.tile', boardEl).forEach(function (n) { n.remove(); });
