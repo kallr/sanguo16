@@ -207,8 +207,9 @@ body.view-3d .tile-labels{ display:block; }
   position:relative;
   width:100%; height:100%;
   border-radius:6px;
-  border:1px solid var(--line-soft);
-  background:linear-gradient(180deg,#262019,#1d1812);
+  border:1px solid #4c463b;
+  /* 石板砖：与 3D 同一石料色，类型只做轻度染色 */
+  background:linear-gradient(180deg,#6f6a5e,#545046);
   display:flex; flex-direction:column;
   align-items:center; justify-content:center;
   overflow:hidden;
@@ -229,14 +230,14 @@ body.view-3d .tile-labels{ display:block; }
 .tile.region-jiangdong{ --region:var(--r-jiangdong); }
 .tile.region-bashu{     --region:var(--r-bashu); }
 
-/* 类型区分 */
-.tile.type-start .tile-inner{ background:linear-gradient(180deg,#3a2c14,#241a0c); border-color:var(--gold-2); }
-.tile.type-city  .tile-inner{ background:linear-gradient(180deg,#292019,#1c1610); }
-.tile.type-pass  .tile-inner{ background:linear-gradient(180deg,#1d2329,#151a1f); }
-.tile.type-event .tile-inner{ background:linear-gradient(180deg,#2a1f2c,#1d151f); }
-.tile.type-chance .tile-inner{ background:linear-gradient(180deg,#1f2a22,#151d18); }
-.tile.type-tavern .tile-inner{ background:linear-gradient(180deg,#2e2118,#20160f); }
-.tile.type-farm  .tile-inner{ background:linear-gradient(180deg,#1e2a1a,#141d12); }
+/* 类型区分（同色系石料，仅色调不同，与 3D 的 TYPE_TINT 对应） */
+.tile.type-start .tile-inner{ background:linear-gradient(180deg,#8a7038,#665026); border-color:var(--gold-2); }
+.tile.type-city  .tile-inner{ background:linear-gradient(180deg,#6f6a5e,#545046); }
+.tile.type-pass  .tile-inner{ background:linear-gradient(180deg,#5e6772,#464e58); }
+.tile.type-event .tile-inner{ background:linear-gradient(180deg,#6d5f7c,#514661); }
+.tile.type-chance .tile-inner{ background:linear-gradient(180deg,#5f7563,#465848); }
+.tile.type-tavern .tile-inner{ background:linear-gradient(180deg,#7a6247,#5b4833); }
+.tile.type-farm  .tile-inner{ background:linear-gradient(180deg,#66754f,#4b573a); }
 
 /* 归属高亮 */
 .tile.owned .tile-inner{

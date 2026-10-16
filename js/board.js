@@ -49,6 +49,17 @@
       ctx.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,.045)' : 'rgba(0,0,0,.05)';
       ctx.fillRect(Math.random() * W, Math.random() * H, 2, 2);
     }
+    /* 河流：先画水带，后面的石板路会盖过去（形成过河的桥） */
+    var rp = D.riverPoints();
+    ctx.lineWidth = 0.47 / D.MAP_W * W;
+    ctx.strokeStyle = '#3f7f96';
+    ctx.beginPath();
+    rp.forEach(function (p, i) {
+      var q = map(p);
+      if (i === 0) ctx.moveTo(q[0], q[1]); else ctx.lineTo(q[0], q[1]);
+    });
+    ctx.stroke();
+
     /* 石板路：先描深色路肩，再铺路面 */
     var pts = D.pathPoints();
     function map(p) {

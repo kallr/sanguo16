@@ -80,6 +80,12 @@
   ];
   /* 路网折线（含 39→0 的西侧回路），用于沿路削平路基 */
   var PATH_PTS = SG.data.pathPoints();
+  /* 河流折线（与 2D 底图共用同一套坐标），河床下切到水面以下 */
+  var RIVER_PTS = SG.data.riverPoints();
+  var RIVER = { bed: 0.004, half: 0.40 };
+  /* 一道低矮的南北向土脊，给草地一点线性起伏 */
+  var RIDGE = { amp: 0.08, width: 0.5,
+    pts: [[-2.1, -3.6], [-1.3, -1.6], [-2.0, 0.6], [-1.2, 2.6], [-2.0, 3.6]] };
 
   /* 海拔 → 草地色（水面另行按水深取色） */
   var LAND_STOPS = [
@@ -192,6 +198,14 @@
       m = PONDS[i];
       d = Math.sqrt((x - m.x) * (x - m.x) + (z - m.z) * (z - m.z)) / m.r;
       if (d < 1) { u = 1 - d * d; h += m.amp * u * u; }   // 碗形水塘
+    }
+    /* 土脊：一条低矮的南北向起伏 */
+    h += RIDGE.amp * Math.exp(-Math.pow(polyDist(x, z, RIDGE.pts), 2) / (2 * RIDGE.width * RIDGE.width));
+    /* 河流：先把河床下切到水面以下，路面最后再压过（形成桥） */
+    var drv = polyDist(x, z, RIVER_PTS);
+    if (drv < RIVER.half) {
+      var kr = 1 - smoothstep(RIVER.half * 0.5, RIVER.half, drv);
+      h = h * (1 - kr) + RIVER.bed * kr;
     }
     /* 石板路：贴着路中线把地形削平到路基高度，两侧留出短边坡 */
     var dr = polyDist(x, z, PATH_PTS);
