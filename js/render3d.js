@@ -5,7 +5,7 @@
    依据当前视角在两者之间路由，engine / state / ai 完全无感。
 
    设计要点：
-   · 只有棋盘几何体进 WebGL：底座、40 个格子方块、棋子立牌。
+   · 只有地图进 WebGL：草地沙盘、石板路、路上的 40 个格子与建筑、路旁树木、棋子立牌。
      中央操作面板 / 弹窗 / 战斗演出 / 侧栏 / tooltip 仍是 DOM 覆层。
    · file:// 下不能用外部图片贴图（会被 CORS 阻断），所有贴图都用
      CanvasTexture 现场绘制（格子顶面 + 棋子令牌）。
@@ -18,86 +18,72 @@
   var C = SG.CONST;
   var THREE = window.THREE;
 
-  var SPAN = C.BOARD_W;               // 棋盘 11 格
-  var CELL = 1;                       // 每格 1 世界单位
-  var HALF = (SPAN - 1) / 2;          // 格心偏移基数（=5）
-  var TILE_W = 0.86;                  // 方块边长（留出缝隙露出底座网格）
-  var TEXW = 128;                     // 格子顶面贴图分辨率
+  var MAP_W = SG.data.MAP_W, MAP_D = SG.data.MAP_D;   // 地图尺寸（世界单位，与 data.cities.js 一致）
+  var TILE_W = 0.86;                  // 石板砖边长
+  var ROAD_Y = 0.05;                  // 路面高度（地形沿路已凿平，路面略高于路基）
+  var TEXW = 128;                     // 石板砖贴图分辨率
   var Z_SCALE = 1 / 65;               // tileZ(px) -> 世界高度
-  var VIEW_W = 13.6, VIEW_H = 11.7;   // 期望棋盘占据的画面对应世界范围
+  var VIEW_W = 12.4, VIEW_H = 9.8;    // 期望地图占据的画面对应世界范围
   var FONT = '"Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif';
 
-  var TYPE_BG = {
-    start:  '#3a2c14',
-    city:   '#292019',
-    pass:   '#1d2329',
-    event:  '#2a1f2c',
-    chance: '#1f2a22',
-    tavern: '#2e2118',
-    farm:   '#1e2a1a'
+  /* 石板路：所有砖同色，靠轻度染色区分类型（类型主要看路上立的建筑/标志物） */
+  var TYPE_TINT = {
+    start:  '#c9a24d',
+    city:   '#9c917d',
+    pass:   '#8f97a2',
+    event:  '#a08fb2',
+    chance: '#8fae96',
+    tavern: '#b09274',
+    farm:   '#95a578'
   };
-  var TYPE_BODY = {
-    start:  0x3a2c14,
-    city:   0x241d16,
-    pass:   0x1b2126,
-    event:  0x271d29,
-    chance: 0x1c2620,
-    tavern: 0x2a1e15,
-    farm:   0x1b2618
-  };
+
+  /* 石板砖：统一灰色石料（类型只靠淡染色 + 路上建筑/标志物区分） */
+  var STONE_TOP = '#8d877a';
+  var STONE_SIDE = 0x585346;
   var TYPE_NAME = {
     start: '起点', city: '城池', pass: '关隘', event: '事件',
     chance: '机会', tavern: '招贤馆', farm: '农田'
   };
 
-  /* ============ 立体地图（地形沙盘）参数 ============
-     棋盘外环 40 格照旧，外环以内 9x9 的空地做成程序化地形浮雕：
-     山脉/丘陵走向对着四条边对应的地域（上=巴蜀、左=河北、右=江东、下=中原），
-     低于 WATER_Y 的地方"淹"成水面（长江/黄河/江东水乡）。
+  /* ============ 立体地图（草地沙盘）参数 ============
+     地图是一整片缓坡草地，40 个石板格铺成蛇形路网横贯全图；
+     地形沿路被削平成路基，路外留出草地、土坡、小水塘与树木。
      全部纯代码生成，不加载任何高度图或贴图文件。 */
-  var TERRAIN_SIZE = 9.0;         // 沙盘边长（世界单位，正好铺满外环以内）
-  var TERRAIN_SEG = 120;          // 细分段数（三角形数 = 2*SEG*SEG）
-  var TERRAIN_BASE = 0.105;       // 平原基准海拔
-  var WATER_Y = 0.075;            // 水面高度：地形低于此值即被水面覆盖
-  var RIM_IN = 3.90;              // 从这个半径开始向棋盘底板收边
-  var RIM_OUT = 4.50;             // 沙盘边缘（此处高度压到贴近底板）
+  var TERRAIN_W = MAP_W + 1.0;    // 沙盘比路网略大一圈
+  var TERRAIN_D = MAP_D + 1.0;
+  var TERRAIN_SEG = 130;          // 细分段数（三角形数 = 2*SEG*SEG）
+  var GRASS_BASE = 0.10;          // 草地基准海拔
+  var WATER_Y = 0.018;            // 低于此高度即被水面覆盖（小水塘；须低于路基）
+  var ROAD_BED = 0.02;            // 路基：路走廊内的地形削平到这个高度
+  var ROAD_FLAT = 0.45;           // 路基平整半径（要盖住路面半宽 0.43）
+  var ROAD_HALF = 0.52;           // 路走廊半宽（含两侧短边坡，须小于行距的一半）
+  var RIM_IN = 0.88;              // 归一化半径：从这里开始向棋盘底板收边
+  var RIM_OUT = 1.0;
   var RIM_LOW = 0.10;             // 收边后保留的高度比例
 
-  /* 山脉/丘陵：中心走向折线 + 振幅 + 半宽（半宽收窄到 0.6~0.85，
-     起伏只集中在各自那一条带上，中间与东侧留出平川）。
-     取各条山脊的最大值而非累加，避免山脊交叠处堆得过高。 */
-  var RIDGES = [
-    { amp: 0.30, width: 0.62,                       // 巴蜀山地（远端）
-      pts: [[-3.6, -2.4], [-2.2, -3.3], [-0.4, -3.0], [1.2, -3.5], [2.4, -3.05]] },
-    { amp: 0.19, width: 0.70,                       // 河北丘陵（左侧）
-      pts: [[-2.2, 2.8], [-3.2, 1.0], [-2.8, -0.8], [-3.4, -2.2]] },
-    { amp: 0.055, width: 0.85,                      // 中原土丘
-      pts: [[-1.3, 1.3], [0.5, 0.8]] }
+  /* 缓坡草地：土坡都放在行与行之间的草带上（那里才没被路基削平） */
+  var MOUNDS = [
+    { x: -1.5, z: 0, r: 1.1, amp: 0.075 },
+    { x: 2.5, z: -2.25, r: 1.2, amp: 0.085 },
+    { x: 0.5, z: 2.25, r: 1.0, amp: 0.065 },
+    { x: 3.4, z: 0, r: 1.0, amp: 0.070 },
+    { x: -3.0, z: 2.25, r: 0.9, amp: 0.060 }
   ];
-
-  /* 江东水乡：东侧整片压低成低洼水网（x 两端都收口，避免水贴到棋盘边缘） */
-  var EAST_DIP = { amp: 0.038, x0: 0.8, x1: 3.0, x2: 3.7, x3: 4.2, z0: 3.4, z1: 4.4 };
-  /* 湖底凹地：叠在低洼之上，形成更深的几片水 */
-  var BASINS = [
-    { x: 2.6, z: 0.4, r: 1.7, amp: -0.030 },
-    { x: 3.2, z: -1.7, r: 1.2, amp: -0.026 }
+  /* 小水塘（原版地图上零星的水面），落在草带里、且避开土坡 */
+  var PONDS = [
+    { x: 0.2, z: -2.25, r: 0.85, amp: -0.150 },
+    { x: -3.4, z: 0, r: 0.80, amp: -0.140 }
   ];
-  var RIVER = { a: [-1.7, 2.3], b: [3.6, 3.1], bed: 0.030, half: 0.50 };
+  /* 路网折线（含 39→0 的西侧回路），用于沿路削平路基 */
+  var PATH_PTS = SG.data.pathPoints();
 
-  /* 高度 → 地表色（水面另行按水深取色） */
+  /* 海拔 → 草地色（水面另行按水深取色） */
   var LAND_STOPS = [
-    [0.02, '#4a5240'], [0.10, '#55603c'], [0.16, '#616b41'],
-    [0.24, '#7c7146'], [0.32, '#8d7c58'], [0.42, '#a89e86']
+    [0.02, '#5c7742'], [0.08, '#69884a'], [0.12, '#76954f'],
+    [0.17, '#8a9c55'], [0.23, '#9e9a5e']
   ];
-  var C_WATER_SHALLOW = new THREE.Color('#46768a');
-  var C_WATER_DEEP = new THREE.Color('#22485c');
-  /* 地域染色：让四条边各有各的地貌气质 */
-  var REGION_TINTS = [
-    { test: function (x, z) { return z < -1.4; }, color: new THREE.Color('#8a6b4a'), k: 0.16 }, // 巴蜀：土黄
-    { test: function (x, z) { return x < -1.4; }, color: new THREE.Color('#46583a'), k: 0.14 }, // 河北：青绿
-    { test: function (x, z) { return x > 1.4; },  color: new THREE.Color('#3a5a4c'), k: 0.16 }, // 江东：水绿
-    { test: function (x, z) { return z > 1.4; },  color: new THREE.Color('#6d6238'), k: 0.16 }  // 中原：黄土
-  ];
+  var C_WATER_SHALLOW = new THREE.Color('#5f96a8');
+  var C_WATER_DEEP = new THREE.Color('#2f6478');
   var _tmpColor = new THREE.Color();
 
   /* ---------------- WebGL 能力检测 ---------------- */
@@ -130,7 +116,7 @@
   var ray = new THREE.Raycaster();
   var ndc = new THREE.Vector2();
   var drag = null;
-  var camYaw = 0, camPitch = 0.86, camDist = 16, camZoom = 1;
+  var camYaw = 0, camPitch = 0.79, camDist = 16, camZoom = 1;   // 默认等角 45° 俯视
 
   /* ---------------- 小工具 ---------------- */
   function roundRect(ctx, x, y, w, h, r) {
@@ -145,7 +131,7 @@
 
   function tileWorld(i) {
     var xy = SG.data.tileXY(i);
-    return { x: (xy.x - HALF) * CELL, z: (xy.y - HALF) * CELL };
+    return { x: (xy.x / 100 - 0.5) * MAP_W, z: (xy.y / 100 - 0.5) * MAP_D };
   }
   function mod(i) { return SG.util.mod(i, C.BOARD_N); }
   /* 台基高度：所有格子先垫起一个基础厚度（这样即使未被占领也看得出是立体的方块），
@@ -190,51 +176,42 @@
     return best;
   }
 
-  /* 原始地形高度（未收边、未淹水） */
+  /* 原始地形高度（未收边、未淹水、未削路） */
   function terrainHeight(x, z) {
-    var h = TERRAIN_BASE, i;
-    var relief = 0;
-    for (i = 0; i < RIDGES.length; i++) {
-      var r = RIDGES[i];
-      var d = polyDist(x, z, r.pts);
-      var v = r.amp * Math.exp(-(d * d) / (2 * r.width * r.width));
-      if (v > relief) relief = v;   // 取最大值，山脊交叠处不会叠加过高
+    var h = GRASS_BASE, i, m, d, u;
+    for (i = 0; i < MOUNDS.length; i++) {
+      m = MOUNDS[i];
+      d = Math.sqrt((x - m.x) * (x - m.x) + (z - m.z) * (z - m.z));
+      h += m.amp * Math.exp(-(d * d) / (2 * m.r * m.r));
     }
-    h += relief;
-
-    for (i = 0; i < BASINS.length; i++) {
-      var b = BASINS[i];
-      var dx = x - b.x, dz = z - b.z;
-      var u = Math.sqrt(dx * dx + dz * dz) / b.r;
-      if (u < 1) { var w = 1 - u * u; h += b.amp * w * w; }   // 碗形凹陷
+    for (i = 0; i < PONDS.length; i++) {
+      m = PONDS[i];
+      d = Math.sqrt((x - m.x) * (x - m.x) + (z - m.z) * (z - m.z)) / m.r;
+      if (d < 1) { u = 1 - d * d; h += m.amp * u * u; }   // 碗形水塘
     }
-
-    /* 江东水乡：东侧整片压低成低洼水网 */
-    var sx = smoothstep(EAST_DIP.x0, EAST_DIP.x1, x) * (1 - smoothstep(EAST_DIP.x2, EAST_DIP.x3, x));
-    var sz = 1 - smoothstep(EAST_DIP.z0, EAST_DIP.z1, Math.abs(z));
-    h -= EAST_DIP.amp * sx * sz;
-
-    /* 黄河：靠近河道中心线时把地面压到河床高度 */
-    var dr = segDist(x, z, RIVER.a, RIVER.b);
-    var rw = 1 - smoothstep(0, RIVER.half, dr);
-    h = h * (1 - rw) + RIVER.bed * rw;
+    /* 石板路：贴着路中线把地形削平到路基高度，两侧留出短边坡 */
+    var dr = polyDist(x, z, PATH_PTS);
+    if (dr < ROAD_HALF) {
+      var k = 1 - smoothstep(ROAD_FLAT, ROAD_HALF, dr);   // 1 = 路心
+      h = h * (1 - k) + ROAD_BED * k;
+    }
     return h;
   }
 
-  /* 顶点最终高度：低于水面则压平到水面，靠近棋盘边缘则向底板收边 */
+  /* 顶点最终高度：低于水面则压平到水面，靠近沙盘边缘则向底板收边 */
   function terrainVertex(x, z) {
     var h = terrainHeight(x, z);
     if (h < WATER_Y) return { y: WATER_Y, water: true, h0: h };
-    var u = Math.max(Math.abs(x), Math.abs(z));
+    var u = Math.max(Math.abs(x) / (TERRAIN_W / 2), Math.abs(z) / (TERRAIN_D / 2));
     var f = 1 - (1 - RIM_LOW) * smoothstep(RIM_IN, RIM_OUT, u);
     return { y: h * f, water: false, h0: h };
   }
 
-  /* 顶点颜色：水面按水深取蓝，陆地按海拔取色再按地域染色 */
+  /* 顶点颜色：水面按水深取蓝，草地按海拔取绿 */
   function terrainColor(t, x, z, out) {
     var i, a, b, k;
     if (t.water) {
-      k = SG.util.clamp((WATER_Y - t.h0) / 0.045, 0, 1);
+      k = SG.util.clamp((WATER_Y - t.h0) / 0.03, 0, 1);
       return out.copy(C_WATER_SHALLOW).lerp(C_WATER_DEEP, k);
     }
     out.set(LAND_STOPS[0][1]);
@@ -247,14 +224,11 @@
       }
       out.set(LAND_STOPS[i][1]);
     }
-    for (i = 0; i < REGION_TINTS.length; i++) {
-      if (REGION_TINTS[i].test(x, z)) { out.lerp(REGION_TINTS[i].color, REGION_TINTS[i].k); break; }
-    }
     return out;
   }
 
   function buildTerrain() {
-    var geo = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, TERRAIN_SEG, TERRAIN_SEG);
+    var geo = new THREE.PlaneGeometry(TERRAIN_W, TERRAIN_D, TERRAIN_SEG, TERRAIN_SEG);
     var pos = geo.attributes.position;
     var colors = new Float32Array(pos.count * 3);
     var col = new THREE.Color();
@@ -288,14 +262,15 @@
     GEO = {
       box: new THREE.BoxGeometry(1, 1, 1),
       pyr: new THREE.ConeGeometry(0.5, 1, 4),     // 四棱锥：中式四坡顶
-      quad: new THREE.PlaneGeometry(1, 1)
+      quad: new THREE.PlaneGeometry(1, 1),
+      sphere: new THREE.SphereGeometry(0.5, 8, 6) // 圆冠树的树冠
     };
   }
 
   /* 建材共享：同材质只建一次（颜色固定，组成也固定） */
   function mat(kind, ownerColor) {
-    var col = { wall: 0x8f8266, roof: 0x7b4636, stone: 0x6d6558,
-      wood: 0x6a4a2b, gold: 0xc9a24d, thatch: 0xa08a4e }[kind];
+    var col = { wall: 0xa07440, roof: 0x4e3420, stone: 0x7d7568, rail: 0x8a6a3c,
+      wood: 0x6a4a2b, gold: 0xc9a24d, thatch: 0xb08a48 }[kind];
     if (kind === 'owner') col = ownerColor;
     var key = kind + '|' + col;
     if (!matCache[key]) matCache[key] = new THREE.MeshLambertMaterial({ color: col });
@@ -326,66 +301,60 @@
     g.add(m);
     return m;
   }
-  /* 旗杆 + 势力色旗面 */
-  function banner(g, poleH, x, y, z, color) {
-    box(g, 0.02, poleH, 0.02, x, y, z, mat('wood'));
-    var f = new THREE.Mesh(GEO.quad, flagMat(color));
-    f.scale.set(0.11, 0.07, 1);
-    f.position.set(x + 0.055, y + poleH - 0.04, z);
-    g.add(f);
-  }
-
-  /* 城池：未占领只留一块空地地基；占领后按规模等级长成城堡 */
+  /* 城池：未占领只留一块空地；占领后按规模长成木构小屋群 + 栏杆高台 + 小红旗。
+     规模 1~5 对应乡村 / 县城 / 郡城 / 都城 / 王城，房屋越多越大。 */
   function makeCity(t, ownerColor) {
     var g = new THREE.Group();
     var L = t.ownerId ? SG.util.clamp(t.level, 1, 5) : 0;
+    var pw = 0.58 + 0.05 * L, pd = 0.46 + 0.04 * L;
+    box(g, pw, 0.05, pd, 0, 0, 0, mat('stone'));                 // 高台地基
     if (!L) {
-      box(g, 0.50, 0.045, 0.40, 0, 0, 0, mat('stone'));
-      box(g, 0.05, 0.20, 0.05, 0.15, 0.045, 0.10, mat('wood'));
+      box(g, 0.05, 0.16, 0.05, 0.14, 0.05, 0.10, mat('wood'));   // 空地界桩
       return g;
     }
-    var r = 0.20 + 0.016 * L;                 // 城墙半径
-    var wh = 0.055 + 0.022 * L;               // 城墙高
-    var kh = 0.05 + 0.05 * L;                 // 主楼高
-    var w = mat('wall'), rf = L >= 4 ? mat('owner', ownerColor) : mat('roof');
-    box(g, r * 2, wh, 0.045, 0, 0, -r, w);
-    box(g, r * 2, wh, 0.045, 0, 0, r, w);
-    box(g, 0.045, wh, r * 2, -r, 0, 0, w);
-    box(g, 0.045, wh, r * 2, r, 0, 0, w);
-    /* 角楼数量随规模增加（王城再加一座中段楼） */
-    var towers = [[-r, -r], [r, -r], [-r, r], [r, r], [0, -r], [0, r]];
-    for (var i = 0; i < Math.min(L, towers.length); i++) {
-      var c = towers[i];
-      box(g, 0.10, wh * 2.2, 0.10, c[0], 0, c[1], w);
-      roof(g, 0.155, 0.075, c[0], wh * 2.2, c[1], rf);
+    /* 台边栏杆 */
+    var i, k;
+    for (i = -1; i <= 1; i++) {
+      for (k = 0; k < 4; k++) {
+        var rx = k < 2 ? i * pw * 0.40 : (k === 2 ? -pw / 2 + 0.03 : pw / 2 - 0.03);
+        var rz = k < 2 ? (k === 0 ? -pd / 2 + 0.03 : pd / 2 - 0.03) : i * pd * 0.40;
+        box(g, 0.022, 0.09, 0.022, rx, 0.05, rz, mat('rail'));
+      }
     }
-    /* 主楼；郡城以上再加一层 */
-    box(g, 0.17, kh, 0.17, 0, 0, 0.01, w);
-    roof(g, 0.26, 0.10, 0, kh, 0.01, rf);
-    if (L >= 3) {
-      box(g, 0.11, kh * 0.5, 0.11, 0, kh + 0.10, 0.01, w);
-      roof(g, 0.17, 0.07, 0, kh * 1.5 + 0.10, 0.01, rf);
+    /* 房屋：乡村 1 座 → 王城 5 座 */
+    var spots = [[0, -0.04], [-0.29, 0.10], [0.29, 0.10], [-0.20, -0.16], [0.20, -0.16]];
+    for (i = 0; i < Math.min(L, spots.length); i++) {
+      var hw = i === 0 ? 0.18 + 0.015 * L : 0.14;
+      var hh = i === 0 ? 0.12 + 0.030 * L : 0.10;
+      box(g, hw, hh, hw * 0.86, spots[i][0], 0.05, spots[i][1], mat('wall'));
+      roof(g, hw * 1.5, 0.07, spots[i][0], 0.05 + hh, spots[i][1], mat('roof'));
+      if (L >= 4 && i === 0) {                                   // 都城 / 王城的主楼加一层
+        box(g, hw * 0.62, 0.07, hw * 0.52, spots[i][0], 0.12 + hh, spots[i][1], mat('wall'));
+        roof(g, hw * 1.0, 0.05, spots[i][0], 0.19 + hh, spots[i][1], mat('roof'));
+      }
     }
-    banner(g, 0.20 + 0.04 * L, 0.13, kh, -0.07, ownerColor);
+    box(g, 0.02, 0.22, 0.02, pw / 2 - 0.05, 0.05, -pd / 2 + 0.06, mat('wood'));
+    var f = new THREE.Mesh(GEO.quad, flagMat(0xb0392e));          // 城头小红旗
+    f.scale.set(0.09, 0.06, 1);
+    f.position.set(pw / 2 - 0.005, 0.23, -pd / 2 + 0.06);
+    g.add(f);
     return g;
   }
 
-  /* 关隘：未占领是残关＋横梁；占领后是关楼 */
+  /* 关隘：木构关门（两根门柱 + 门楣 + 檐顶），占领后挂势力旗 */
   function makePass(t, ownerColor) {
     var g = new THREE.Group();
-    if (!t.ownerId) {
-      box(g, 0.09, 0.16, 0.09, -0.18, 0, 0, mat('stone'));
-      box(g, 0.09, 0.16, 0.09, 0.18, 0, 0, mat('stone'));
-      box(g, 0.46, 0.05, 0.09, 0, 0.16, 0, mat('stone'));
-      return g;
+    box(g, 0.54, 0.04, 0.32, 0, 0, 0, mat('stone'));
+    box(g, 0.09, 0.26, 0.09, -0.20, 0.04, 0, mat('wood'));
+    box(g, 0.09, 0.26, 0.09, 0.20, 0.04, 0, mat('wood'));
+    box(g, 0.32, 0.09, 0.10, 0, 0.30, 0, mat('wood'));
+    roof(g, 0.44, 0.09, 0, 0.39, 0, mat('roof'));
+    if (t.ownerId) {
+      var f = new THREE.Mesh(GEO.quad, flagMat(ownerColor));
+      f.scale.set(0.12, 0.07, 1);
+      f.position.set(0.27, 0.32, 0);
+      g.add(f);
     }
-    box(g, 0.10, 0.30, 0.10, -0.20, 0, 0, mat('stone'));
-    box(g, 0.10, 0.30, 0.10, 0.20, 0, 0, mat('stone'));
-    roof(g, 0.16, 0.07, -0.20, 0.30, 0, mat('roof'));
-    roof(g, 0.16, 0.07, 0.20, 0.30, 0, mat('roof'));
-    box(g, 0.26, 0.18, 0.07, 0, 0, -0.03, mat('stone'));
-    roof(g, 0.32, 0.08, 0, 0.18, -0.03, mat('roof'));
-    banner(g, 0.18, 0, 0.26, -0.12, ownerColor);
     return g;
   }
 
@@ -474,6 +443,8 @@
     buildGeos();
     buildBase();
     buildTerrain();
+    buildRoad();
+    buildScenery();
     buildFrames();
 
     /* 交互：拖拽环绕、滚轮缩放、悬浮高亮 */
@@ -491,45 +462,114 @@
   }
 
   function buildBase() {
-    var outer = SPAN * CELL + 1.6;
+    var ow = MAP_W + 1.8, od = MAP_D + 1.8;
     var lip = new THREE.Mesh(
-      new THREE.BoxGeometry(outer, 0.2, outer),
+      new THREE.BoxGeometry(ow, 0.2, od),
       new THREE.MeshLambertMaterial({ color: 0x120f0b })
     );
     lip.position.y = -0.5;
     scene.add(lip);
 
     var plate = new THREE.Mesh(
-      new THREE.BoxGeometry(outer - 0.7, 0.4, outer - 0.7),
-      new THREE.MeshLambertMaterial({ color: 0x1b1610 })
+      new THREE.BoxGeometry(ow - 0.7, 0.4, od - 0.7),
+      new THREE.MeshLambertMaterial({ color: 0x241f18 })
     );
     plate.position.y = -0.2;
     scene.add(plate);
+  }
 
-    /* 底座顶面的网格线（CanvasTexture 现场绘制，径向渐变 + 11x11 金线） */
+  /* ---------------- 石板路：沿路网铺一条比地块略宽的石板道 ---------------- */
+  var SLAB_U = 0.5;               // 一块石板沿路方向的世界长度
+  function roadTexture() {
     var cv = document.createElement('canvas');
-    cv.width = cv.height = 1024;
+    cv.width = cv.height = 128;
     var ctx = cv.getContext('2d');
-    var g = ctx.createRadialGradient(512, 470, 40, 512, 512, 560);
-    g.addColorStop(0, 'rgba(36,29,21,.95)');
-    g.addColorStop(0.62, 'rgba(25,20,16,.95)');
-    g.addColorStop(1, 'rgba(16,13,10,.95)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 1024, 1024);
-    ctx.strokeStyle = 'rgba(217,178,106,.10)';
-    ctx.lineWidth = 2;
-    for (var k = 0; k <= SPAN; k++) {
-      var p = Math.round(k * 1024 / SPAN) + 0.5;
-      ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, 1024); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(1024, p); ctx.stroke();
+    ctx.fillStyle = '#6f6a5d';
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.strokeStyle = 'rgba(32,28,22,.6)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(0.5, 0); ctx.lineTo(0.5, 128); ctx.stroke();      // 石板缝
+    ctx.beginPath(); ctx.moveTo(64.5, 0); ctx.lineTo(64.5, 128); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, 20.5); ctx.lineTo(128, 20.5); ctx.stroke();    // 两道路沿
+    ctx.beginPath(); ctx.moveTo(0, 106.5); ctx.lineTo(128, 106.5); ctx.stroke();
+    for (var i = 0; i < 700; i++) {
+      ctx.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.07)';
+      ctx.fillRect(Math.random() * 128, Math.random() * 128, 2, 2);
     }
-    var grid = new THREE.Mesh(
-      new THREE.PlaneGeometry(SPAN * CELL, SPAN * CELL),
-      new THREE.MeshBasicMaterial({ map: newTex(cv), transparent: true })
-    );
-    grid.rotation.x = -Math.PI / 2;
-    grid.position.y = 0.004;
-    scene.add(grid);
+    var tx = newTex(cv);
+    tx.wrapS = tx.wrapT = THREE.RepeatWrapping;
+    return tx;
+  }
+
+  function buildRoad() {
+    var mat = new THREE.MeshLambertMaterial({ map: roadTexture() });
+    var pts = PATH_PTS;
+    for (var i = 0; i < pts.length - 1; i++) {
+      var a = pts[i], b = pts[i + 1];
+      var dx = b[0] - a[0], dz = b[1] - a[1];
+      var len = Math.sqrt(dx * dx + dz * dz) + 0.14;
+      var geo = new THREE.PlaneGeometry(len, 0.86, 1, 1);
+      geo.rotateX(-Math.PI / 2);
+      var uv = geo.attributes.uv;
+      for (var k = 0; k < uv.count; k++) uv.setX(k, uv.getX(k) * (len / SLAB_U));
+      var mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set((a[0] + b[0]) / 2, ROAD_Y, (a[1] + b[1]) / 2);
+      mesh.rotation.y = -Math.atan2(dz, dx);
+      scene.add(mesh);
+    }
+  }
+
+  /* ---------------- 路旁装饰：圆冠树与旗杆 ---------------- */
+  function freeSpot(x, z) {
+    for (var i = 0; i < C.BOARD_N; i++) {
+      var w = tileWorld(i);
+      if (Math.abs(w.x - x) < 1.0 && Math.abs(w.z - z) < 1.0) return false;
+    }
+    return !terrainVertex(x, z).water;
+  }
+
+  function buildScenery() {
+    var trunkMat = new THREE.MeshLambertMaterial({ color: 0x6b4a2c });
+    var leafMat = new THREE.MeshLambertMaterial({ color: 0x4d7a39 });
+    var poleMat = new THREE.MeshLambertMaterial({ color: 0x6a4a2b });
+    var flagRed = new THREE.MeshLambertMaterial({ color: 0xb0392e, side: THREE.DoubleSide });
+    var pts = PATH_PTS, i, s;
+    for (i = 0; i < pts.length - 1; i++) {
+      var a = pts[i], b = pts[i + 1];
+      var dx = b[0] - a[0], dz = b[1] - a[1];
+      var L = Math.sqrt(dx * dx + dz * dz) || 1;
+      var nx = -dz / L, nz = dx / L;                       // 路的法向
+      for (s = 0; s < 2; s++) {
+        var t = s === 0 ? 0.3 : 0.7;
+        var side = ((i + s) % 2 === 0) ? 1 : -1;
+        var qx = a[0] + dx * t + nx * side * 0.95;
+        var qz = a[1] + dz * t + nz * side * 0.95;
+        if (!freeSpot(qx, qz)) continue;
+        var gy = terrainVertex(qx, qz).y;
+        if ((i + s) % 3 === 0) {
+          /* 旗杆 */
+          var pole = new THREE.Mesh(GEO.box, poleMat);
+          pole.scale.set(0.03, 0.42, 0.03);
+          pole.position.set(qx, gy + 0.21, qz);
+          scene.add(pole);
+          var fl = new THREE.Mesh(GEO.quad, flagRed);
+          fl.scale.set(0.16, 0.10, 1);
+          fl.position.set(qx + 0.08, gy + 0.35, qz);
+          scene.add(fl);
+        } else {
+          /* 圆冠树：树干 + 球形树冠 */
+          var trunk = new THREE.Mesh(GEO.box, trunkMat);
+          trunk.scale.set(0.06, 0.16, 0.06);
+          trunk.position.set(qx, gy + 0.08, qz);
+          scene.add(trunk);
+          var leaf = new THREE.Mesh(GEO.sphere, leafMat);
+          var sc = 0.42 + ((i + s) % 3) * 0.07;
+          leaf.scale.set(sc, sc * 0.85, sc);
+          leaf.position.set(qx, gy + 0.16 + sc * 0.42, qz);
+          scene.add(leaf);
+        }
+      }
+    }
   }
 
   /* 高亮框：悬浮（金）与当前所在格（脉冲）共用一个白色描边贴图，靠颜色区分 */
@@ -572,12 +612,24 @@
     var ctx = rec.ctx, S = TEXW;
     ctx.clearRect(0, 0, S, S);
 
-    ctx.fillStyle = TYPE_BG[t.type] || '#262019';
+    /* 石板砖：统一石料 + 按类型轻度染色（类型主要看路上立的建筑/标志物） */
+    ctx.fillStyle = STONE_TOP;
     roundRect(ctx, 0, 0, S, S, 14); ctx.fill();
-
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = TYPE_TINT[t.type] || STONE_TOP;
+    roundRect(ctx, 0, 0, S, S, 14); ctx.fill();
+    ctx.globalAlpha = 1;
+    /* 石板缝 */
+    ctx.strokeStyle = 'rgba(40,34,26,.40)';
+    ctx.lineWidth = 2;
+    for (var sy = 32; sy < S - 8; sy += 32) {
+      ctx.beginPath(); ctx.moveTo(10, sy + 0.5); ctx.lineTo(S - 10, sy + 0.5); ctx.stroke();
+    }
+    ctx.beginPath(); ctx.moveTo(S / 2 + 0.5, 8); ctx.lineTo(S / 2 + 0.5, S - 8); ctx.stroke();
+    /* 上亮下暗，做出一点厚度感 */
     var g = ctx.createLinearGradient(0, 0, 0, S);
-    g.addColorStop(0, 'rgba(255,255,255,.10)');
-    g.addColorStop(1, 'rgba(0,0,0,.24)');
+    g.addColorStop(0, 'rgba(255,255,255,.12)');
+    g.addColorStop(1, 'rgba(0,0,0,.22)');
     ctx.fillStyle = g;
     roundRect(ctx, 0, 0, S, S, 14); ctx.fill();
 
@@ -590,21 +642,8 @@
     /* 边框：被占领则用势力色 */
     var owner = t.ownerId ? factionColor(state, t.ownerId) : null;
     ctx.lineWidth = owner ? 5 : 2;
-    ctx.strokeStyle = owner || 'rgba(69,55,35,.9)';
+    ctx.strokeStyle = owner || 'rgba(56,48,36,.85)';
     roundRect(ctx, 4, 4, S - 8, S - 8, 12); ctx.stroke();
-
-    /* 城池 / 关隘：上半天画一片地砖，像城内的院落（3D 建筑就立在这片地上）。
-       格名与规模改由浮在建筑上方的名牌（DOM）显示，不会被建筑挡住。 */
-    if (t.type === 'city' || t.type === 'pass') {
-      ctx.strokeStyle = 'rgba(233,220,196,.10)';
-      ctx.lineWidth = 1;
-      for (var gy = 14; gy < 80; gy += 13) {
-        ctx.beginPath(); ctx.moveTo(12, gy); ctx.lineTo(S - 12, gy); ctx.stroke();
-      }
-      for (var gx = 12; gx < S - 10; gx += 13) {
-        ctx.beginPath(); ctx.moveTo(gx, 10); ctx.lineTo(gx, 78); ctx.stroke();
-      }
-    }
   }
 
   /* ---------------- 城池名牌（DOM 覆层，浮在建筑上方） ---------------- */
@@ -660,7 +699,7 @@
 
       rec.mesh = new THREE.Mesh(
         new THREE.BoxGeometry(TILE_W, 1, TILE_W),
-        new THREE.MeshLambertMaterial({ color: TYPE_BODY[t.type] || 0x262019 })
+        new THREE.MeshLambertMaterial({ color: STONE_SIDE })   // 实际颜色在 refreshTiles 里按类型/归属再定
       );
       rec.mesh.position.set(w.x, 0, w.z);
       rec.mesh.userData.index = t.i;
@@ -723,9 +762,10 @@
       rec.mesh.position.y = h / 2;
       rec.top.position.y = h + 0.004;
 
-      var base = new THREE.Color(TYPE_BODY[t.type] || 0x262019);
-      if (t.ownerId) base.lerp(new THREE.Color(factionColor(state, t.ownerId)), 0.55);
-      base.multiplyScalar(t.ownerId ? 0.72 : 0.9);
+      /* 砖侧：统一石料 + 类型淡染，被占领再压一层势力色 */
+      var base = new THREE.Color(STONE_SIDE);
+      base.lerp(new THREE.Color(TYPE_TINT[t.type] || STONE_TOP), 0.20);
+      if (t.ownerId) base.lerp(new THREE.Color(factionColor(state, t.ownerId)), 0.42);
       rec.mesh.material.color.copy(base);
 
       refreshBuilding(rec, t, h);

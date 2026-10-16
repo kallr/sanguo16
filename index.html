@@ -74,27 +74,27 @@
         <div id="board" class="board">
           <!-- 棋盘格子由 board.js 动态生成（2D 视角） -->
         </div>
-        <!-- 中央 UI 作为平面覆层浮在棋盘之上，保证按钮与骰子始终正对镜头 -->
-        <div id="boardCenter" class="board-center">
-          <div id="centerInfo" class="center-info"></div>
-          <div id="diceBox" class="dice-box">
-            <div id="diceCube" class="dice-cube">
-              <div class="dc-face dc-1">1</div>
-              <div class="dc-face dc-2">2</div>
-              <div class="dc-face dc-3">3</div>
-              <div class="dc-face dc-4">4</div>
-              <div class="dc-face dc-5">5</div>
-              <div class="dc-face dc-6">6</div>
-            </div>
-            <div id="diceFace" class="dice-face">–</div>
-            <div id="diceHint" class="dice-hint">等待掷骰…</div>
-          </div>
-          <div id="boardActions" class="board-actions"></div>
-        </div>
       </div>
     </section>
 
     <aside id="sidebar" class="sidebar">
+      <!-- 骰子与操作区（原版把这块放在棋盘之外，地图才能铺满整幅） -->
+      <div id="boardCenter" class="side-section center-panel">
+        <div id="centerInfo" class="center-info"></div>
+        <div id="diceBox" class="dice-box">
+          <div id="diceCube" class="dice-cube">
+            <div class="dc-face dc-1">1</div>
+            <div class="dc-face dc-2">2</div>
+            <div class="dc-face dc-3">3</div>
+            <div class="dc-face dc-4">4</div>
+            <div class="dc-face dc-5">5</div>
+            <div class="dc-face dc-6">6</div>
+          </div>
+          <div id="diceFace" class="dice-face">–</div>
+          <div id="diceHint" class="dice-hint">等待掷骰…</div>
+        </div>
+        <div id="boardActions" class="board-actions"></div>
+      </div>
       <div class="side-section">
         <div class="side-title">群雄割据</div>
         <div id="factionList" class="faction-list"></div>

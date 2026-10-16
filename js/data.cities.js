@@ -1,8 +1,9 @@
 /* =========================================================
    data.cities.js —— 棋盘格子表
-   棋盘为 11x11 外环，共 40 格，按顺时针从底部左端(起点)起编号。
-   坐标 x/y 由 board.js 依据索引推算（见 data.tileXY），无需手工维护。
-   走向：index 0 → (0,10)，沿底边向右 → 右边向上 → 顶边向左 → 左边向下
+   地图是《富甲天下2》那种「路网铺满地图」的形状：5 列 x 8 行的
+   蛇形石板路，共 40 格，格序沿路推进（奇数行反向），
+   最后一格在西侧，与索引 0 之间由一条西侧回路闭合。
+   坐标 x/y 由索引推算（见 data.tileXY），无需手工维护。
    ========================================================= */
 (function () {
   'use strict';
@@ -83,13 +84,32 @@
     farm:   '🌾'
   };
 
-  /* 由索引推算棋盘坐标（11x11 外环） */
+  /* ---- 地图尺寸与路网（2D 与 3D 两个渲染层共用同一套坐标） ---- */
+  SG.data.MAP_W = 10.6;           // 地图宽（世界单位，渲染层用；2D 只用它的比例）
+  SG.data.MAP_D = 9.4;            // 地图深（世界单位）
+  SG.data.PATH_COLS = 10;         // 蛇形路网的列数
+  SG.data.PATH_ROWS = 4;          // 行数（10 x 4 = 40 格）
+  SG.data.COL_X = [5, 15, 25, 35, 45, 55, 65, 75, 85, 95];   // 每列中心（% 横向）
+  SG.data.ROW_Y = [14, 38, 62, 86];                          // 每行中心（% 纵向，向下为正）
+
+  /* 由索引推算格子坐标（%）：蛇形推进，奇数行反向 */
   SG.data.tileXY = function (i) {
-    var last = SG.CONST.BOARD_W - 1; // 10
-    if (i <= last)        return { x: i,                    y: last };              // 底边 0-10：左→右
-    if (i <= 2 * last)    return { x: last,                 y: last - (i - last) }; // 右边 11-20：下→上
-    if (i <= 3 * last)    return { x: last - (i - 2 * last), y: 0 };                // 顶边 21-30：右→左
-    return { x: 0, y: i - 3 * last };                                              // 左边 31-39：上→下
+    var n = SG.util.mod(i, SG.CONST.BOARD_N);
+    var r = Math.floor(n / SG.data.PATH_COLS);
+    var c = n % SG.data.PATH_COLS;
+    if (r % 2 === 1) c = SG.data.PATH_COLS - 1 - c;   // 奇数行自右向左
+    return { x: SG.data.COL_X[c], y: SG.data.ROW_Y[r] };
+  };
+
+  /* 路径闭合：最后一格(西侧)回到起点，形成棋盘外圈的那段回路 */
+  SG.data.pathPoints = function () {
+    var pts = [], i;
+    for (i = 0; i < SG.CONST.BOARD_N; i++) {
+      var xy = SG.data.tileXY(i);
+      pts.push([(xy.x / 100 - 0.5) * SG.data.MAP_W, (xy.y / 100 - 0.5) * SG.data.MAP_D]);
+    }
+    pts.push(pts[0].slice());        // 39 → 0 的回路
+    return pts;
   };
 
 })();

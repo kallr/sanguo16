@@ -141,14 +141,13 @@ body{
 .board-stage{
   position:relative;
   display:flex; align-items:center; justify-content:center;
-  /* 2D：整个方块正好放进可视区 */
-  width:min(calc(100vw - 380px), calc(100vh - 90px));
-  height:min(calc(100vh - 90px), calc(100vw - 380px));
+  /* 2D：地图宽高比 10.6:9.4，按宽度定尺寸，高度由比例推出 */
+  width:min(calc(100vw - 380px), calc((100vh - 130px) * 1.128));
 }
-/* 3D：舞台即 WebGL 视口，铺满可用区域（投影交给相机，无需按倾斜折算） */
+/* 3D：舞台即 WebGL 视口，铺满可用区域（投影交给相机，无需按比例折算） */
 body.view-3d .board-stage{
-  width:min(calc(100vw - 380px), 1400px);
-  height:calc(100vh - 90px);
+  width:min(calc(100vw - 380px), 1500px);
+  height:calc(100vh - 100px);
 }
 /* 3D 下的 WebGL 画布：浮在 #board 之上，中央覆层再叠在它之上 */
 .gl-canvas{
@@ -179,8 +178,8 @@ body.view-3d .tile-labels{ display:block; }
 /* ---------- 棋盘 ---------- */
 .board{
   position:relative;
-  width:100%; height:auto;
-  aspect-ratio:1 / 1;
+  width:100%;
+  aspect-ratio:10.6 / 9.4;      /* 与 data.cities.js 的 MAP_W / MAP_D 保持一致 */
   background:
     radial-gradient(circle at 50% 46%, #241d15 0%, #191410 62%, #100d0a 100%);
   border:2px solid var(--line);
@@ -192,13 +191,14 @@ body.view-3d .tile-labels{ display:block; }
   background-image:
     linear-gradient(rgba(217,178,106,.045) 1px, transparent 1px),
     linear-gradient(90deg, rgba(217,178,106,.045) 1px, transparent 1px);
-  background-size:calc(100%/11) calc(100%/11);
+  /* 与蛇形路网的行列中心对齐（列距 10%、行距 24%） */
+  background-size:10% 24%;
 }
 
-/* ---------- 格子 ---------- */
+/* ---------- 格子（石板砖，尺寸与 3D 地图一致：0.86 / 10.6 与 0.86 / 9.4） ---------- */
 .tile{
   position:absolute;
-  width:calc(100% / 11); height:calc(100% / 11);
+  width:8.11%; height:9.15%;
   padding:1.5px;
   cursor:default;
   transition:filter .15s;
@@ -264,7 +264,7 @@ body.view-3d .tile-labels{ display:block; }
 /* ---------- 棋子（2D 平面令牌） ---------- */
 .piece{
   position:absolute;
-  width:calc(100% / 11); height:calc(100% / 11);
+  width:8.11%; height:9.15%;
   display:flex; align-items:center; justify-content:center;
   pointer-events:none;
   z-index:9;
@@ -282,21 +282,13 @@ body.view-3d .tile-labels{ display:block; }
 .piece.active .piece-dot{ animation:pieceBob .9s ease-in-out infinite; }
 @keyframes pieceBob{ 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-4px) } }
 
-/* ---------- 棋盘中央（DOM 覆层，叠在 2D 棋盘 / 3D 画布之上） ---------- */
-.board-center{
-  position:absolute; left:50%; top:50%;
-  transform:translate(-50%,-50%);
-  width:44%; max-width:460px;
-  display:flex; flex-direction:column; align-items:center; justify-content:center;
-  gap:10px; padding:16px 14px; text-align:center; pointer-events:none;
-  border-radius:14px;
-  background:linear-gradient(180deg, rgba(30,24,17,.86), rgba(15,12,8,.9));
-  border:1px solid var(--line);
-  box-shadow:var(--shadow);
-  backdrop-filter:blur(3px);
+/* ---------- 骰子与操作区（放在侧栏顶部，与棋盘分离） ---------- */
+.center-panel{
+  display:flex; flex-direction:column; align-items:center; gap:8px;
+  text-align:center; padding:10px;
 }
-.board-center > *{ pointer-events:auto; }
-.center-info{ color:var(--ink-dim); font-size:13px; line-height:1.7; max-width:90%; }
+.center-panel .center-info{ font-size:12px; }
+.center-info{ color:var(--ink-dim); font-size:13px; line-height:1.7; max-width:100%; }
 .center-info b{ color:var(--gold); }
 
 .dice-box{ display:flex; flex-direction:column; align-items:center; gap:6px; }
@@ -540,7 +532,7 @@ body.view-3d .dice-cube.rolling{ animation:cubeRoll .6s linear infinite; }
   .app{ height:auto; min-height:100vh; }
   .layout{ flex-direction:column; }
   .board-wrap{ padding:8px; }
-  .board-stage{ width:min(100%, 92vw); height:min(100%, 92vw); }
+  .board-stage{ width:min(100%, 92vw); }
   body.view-3d .board-stage{ width:100%; height:min(78vw, 62vh); }
   .board{ max-width:none; max-height:none; }
   .sidebar{ flex:none; width:auto; padding:8px; }
