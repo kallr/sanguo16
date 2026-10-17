@@ -141,13 +141,13 @@ body{
 .board-stage{
   position:relative;
   display:flex; align-items:center; justify-content:center;
-  /* 2D：地图宽高比 10.6:9.4，按宽度定尺寸，高度由比例推出 */
-  width:min(calc(100vw - 380px), calc((100vh - 130px) * 1.128));
+  /* 2D：地图宽高比 14:12，按宽度定尺寸，高度由比例推出 */
+  width:min(calc(100vw - 356px), calc((100vh - 100px) * 1.1667));
 }
 /* 3D：舞台即 WebGL 视口，铺满可用区域（投影交给相机，无需按比例折算） */
 body.view-3d .board-stage{
-  width:min(calc(100vw - 380px), 1500px);
-  height:calc(100vh - 100px);
+  width:min(calc(100vw - 356px), 1900px);
+  height:calc(100vh - 88px);
 }
 /* 3D 下的 WebGL 画布：浮在 #board 之上，中央覆层再叠在它之上 */
 .gl-canvas{
@@ -179,29 +179,23 @@ body.view-3d .tile-labels{ display:block; }
 .board{
   position:relative;
   width:100%;
-  aspect-ratio:10.6 / 9.4;      /* 与 data.cities.js 的 MAP_W / MAP_D 保持一致 */
+  aspect-ratio:14 / 12;         /* 与 data.cities.js 的 MAP_W / MAP_D 保持一致 */
   background:
     radial-gradient(circle at 50% 46%, #241d15 0%, #191410 62%, #100d0a 100%);
   border:2px solid var(--line);
   border-radius:14px;
   box-shadow:var(--shadow), inset 0 0 80px rgba(0,0,0,.6);
 }
-.board::before{
-  content:""; position:absolute; inset:0; border-radius:12px; pointer-events:none;
-  background-image:
-    linear-gradient(rgba(217,178,106,.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(217,178,106,.045) 1px, transparent 1px);
-  /* 与蛇形路网的行列中心对齐（列距 10%、行距 24%） */
-  background-size:10% 24%;
-}
 
-/* ---------- 格子（石板砖，尺寸与 3D 地图一致：0.86 / 10.6 与 0.86 / 9.4） ---------- */
+/* ---------- 格子（石板砖，尺寸与 3D 地图一致：0.86 / 14 与 0.86 / 12） ---------- */
 .tile{
   position:absolute;
-  width:8.11%; height:9.15%;
+  width:6.14%; height:7.17%;
   padding:1.5px;
   cursor:default;
   transition:filter .15s;
+  /* 坐标给的是格心（与 3D 的 tileWorld 同一套坐标），故平移半格居中 */
+  transform:translate(-50%,-50%);
 }
 .tile-inner{
   position:relative;
@@ -217,9 +211,9 @@ body.view-3d .tile-labels{ display:block; }
 }
 .tile:hover .tile-inner{ filter:brightness(1.28); border-color:var(--gold-2); }
 
-.tile-name{ font-size:11px; line-height:1.1; text-align:center; color:var(--ink); letter-spacing:.5px; }
-.tile-sub{ font-size:9px; color:var(--ink-dim); margin-top:2px; }
-.tile-icon{ font-size:16px; line-height:1; }
+.tile-name{ font-size:10px; line-height:1.1; text-align:center; color:var(--ink); letter-spacing:.5px; }
+.tile-sub{ font-size:8px; color:var(--ink-dim); margin-top:2px; }
+.tile-icon{ font-size:14px; line-height:1; }
 
 /* 地域左侧色条 */
 .tile-inner::before{
@@ -265,11 +259,12 @@ body.view-3d .tile-labels{ display:block; }
 /* ---------- 棋子（2D 平面令牌） ---------- */
 .piece{
   position:absolute;
-  width:8.11%; height:9.15%;
+  width:6.14%; height:7.17%;
   display:flex; align-items:center; justify-content:center;
   pointer-events:none;
   z-index:9;
   transition:left .13s linear, top .13s linear;
+  transform:translate(-50%,-50%);
 }
 .piece-dot{
   position:relative;

@@ -23,7 +23,7 @@
   var ROAD_Y = 0.05;                  // 路面高度（地形沿路已凿平，路面略高于路基）
   var TEXW = 128;                     // 石板砖贴图分辨率
   var Z_SCALE = 1 / 65;               // tileZ(px) -> 世界高度
-  var VIEW_W = 12.4, VIEW_H = 9.8;    // 期望地图占据的画面对应世界范围
+  var VIEW_PAD = 1.08;                // 取景留白系数（已含边缘格子自身的半宽）
   var FONT = '"Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif';
 
   /* 石板路：所有砖同色，靠轻度染色区分类型（类型主要看路上立的建筑/标志物） */
@@ -46,46 +46,49 @@
   };
 
   /* ============ 立体地图（草地沙盘）参数 ============
-     地图是一整片缓坡草地，40 个石板格铺成蛇形路网横贯全图；
+     地图是一整片缓坡草地，40 个石板格沿一条闭合的巡游路网铺开
+     （中原在中部拱行、江东在东、河北在北、巴蜀在西）；
      地形沿路被削平成路基，路外留出草地、土坡、小水塘与树木。
      全部纯代码生成，不加载任何高度图或贴图文件。 */
-  var TERRAIN_W = MAP_W + 1.0;    // 沙盘比路网略大一圈
-  var TERRAIN_D = MAP_D + 1.0;
-  var TERRAIN_SEG = 130;          // 细分段数（三角形数 = 2*SEG*SEG）
+  var TERRAIN_W = MAP_W + 1.6;    // 沙盘比路网略大一圈
+  var TERRAIN_D = MAP_D + 1.6;
+  var TERRAIN_SEG = 150;          // 细分段数（三角形数 = 2*SEG*SEG）
   var GRASS_BASE = 0.10;          // 草地基准海拔
   var WATER_Y = 0.018;            // 低于此高度即被水面覆盖（小水塘；须低于路基）
   var ROAD_BED = 0.02;            // 路基：路走廊内的地形削平到这个高度
   var ROAD_FLAT = 0.45;           // 路基平整半径（要盖住路面半宽 0.43）
-  var ROAD_HALF = 0.52;           // 路走廊半宽（含两侧短边坡，须小于行距的一半）
+  var ROAD_HALF = 0.52;           // 路走廊半宽（含两侧短边坡）
   var RIM_IN = 0.88;              // 归一化半径：从这里开始向棋盘底板收边
   var RIM_OUT = 1.0;
   var RIM_LOW = 0.10;             // 收边后保留的高度比例
 
-  /* 缓坡草地：土坡都放在行与行之间的草带上（那里才没被路基削平） */
+  /* 缓坡草地：土坡都放在路网外的草带里（中原拱圈内、北侧草带、南侧空地），
+     且与格子保持 1.4 以上距离，免得草地漫过砖面 */
   var MOUNDS = [
-    { x: -1.5, z: 0, r: 1.1, amp: 0.075 },
-    { x: 2.5, z: -2.25, r: 1.2, amp: 0.085 },
-    { x: 0.5, z: 2.25, r: 1.0, amp: 0.065 },
-    { x: 3.4, z: 0, r: 1.0, amp: 0.070 },
-    { x: -3.0, z: 2.25, r: 0.9, amp: 0.060 },
-    { x: -4.0, z: 2.25, r: 0.9, amp: 0.070 },
-    { x: 1.2, z: 0, r: 0.8, amp: 0.055 },
-    { x: -0.9, z: -2.25, r: 0.9, amp: 0.065 },
-    { x: 4.2, z: -2.25, r: 0.8, amp: 0.060 }
+    { x: -3.6, z: -3.6, r: 1.0, amp: 0.065 },
+    { x:  0.0, z: -3.6, r: 1.0, amp: 0.065 },
+    { x:  3.5, z: -3.6, r: 1.0, amp: 0.065 },
+    { x: -1.3, z:  0.4, r: 1.1, amp: 0.075 },
+    { x:  1.4, z: -0.3, r: 1.0, amp: 0.070 },
+    { x: -2.1, z:  4.7, r: 1.1, amp: 0.080 },
+    { x:  4.2, z:  5.2, r: 0.8, amp: 0.055 },
+    { x: -4.3, z: -1.6, r: 0.9, amp: 0.060 },
+    { x:  4.5, z: -2.4, r: 0.9, amp: 0.060 }
   ];
   /* 小水塘（原版地图上零星的水面），落在草带里、且避开土坡 */
   var PONDS = [
-    { x: 0.2, z: -2.25, r: 0.85, amp: -0.150 },
-    { x: -3.4, z: 0, r: 0.80, amp: -0.140 }
+    { x: -1.6, z: 2.7, r: 0.85, amp: -0.140 },
+    { x:  2.6, z: 4.6, r: 0.95, amp: -0.140 },
+    { x: -0.6, z: 5.2, r: 0.80, amp: -0.120 }
   ];
-  /* 路网折线（含 39→0 的西侧回路），用于沿路削平路基 */
+  /* 路网折线（含 39→0 的闭合段），用于沿路削平路基 */
   var PATH_PTS = SG.data.pathPoints();
   /* 河流折线（与 2D 底图共用同一套坐标），河床下切到水面以下 */
   var RIVER_PTS = SG.data.riverPoints();
-  var RIVER = { bed: 0.004, half: 0.40 };
-  /* 一道低矮的南北向土脊，给草地一点线性起伏 */
-  var RIDGE = { amp: 0.08, width: 0.5,
-    pts: [[-2.1, -3.6], [-1.3, -1.6], [-2.0, 0.6], [-1.2, 2.6], [-2.0, 3.6]] };
+  var RIVER = { bed: 0.004, half: 0.32 };
+  /* 一道低矮的东西向土脊，给北侧草带一点线性起伏 */
+  var RIDGE = { amp: 0.05, width: 0.5,
+    pts: [[-4.4, -3.7], [-1.5, -3.5], [1.5, -3.7], [4.4, -3.5]] };
 
   /* 海拔 → 草地色（水面另行按水深取色） */
   var LAND_STOPS = [
@@ -144,9 +147,10 @@
     return { x: (xy.x / 100 - 0.5) * MAP_W, z: (xy.y / 100 - 0.5) * MAP_D };
   }
   function mod(i) { return SG.util.mod(i, C.BOARD_N); }
-  /* 台基高度：所有格子先垫起一个基础厚度（这样即使未被占领也看得出是立体的方块），
-     城池再按等级往上长，与 2D 版 tileZ() 的抬升值保持一致。 */
-  function tileHeight(t) { return 0.13 + SG.Board2D.tileZ(t) * Z_SCALE; }
+  /* 台基高度：所有格子先垫起一个基础厚度（这样即使未被占领也看得出是立体的方块，
+     并且高过路外的草地起伏，不会被土坡漫过），城池再按等级往上长，
+     与 2D 版 tileZ() 的抬升值保持一致。 */
+  function tileHeight(t) { return 0.20 + SG.Board2D.tileZ(t) * Z_SCALE; }
   function factionColor(st, id) {
     var f = st.factions.filter(function (x) { return x.id === id; })[0];
     return f ? f.color : '#8a6bbf';
@@ -480,7 +484,7 @@
   }
 
   function buildBase() {
-    var ow = MAP_W + 1.8, od = MAP_D + 1.8;
+    var ow = TERRAIN_W + 0.6, od = TERRAIN_D + 0.6;
     var lip = new THREE.Mesh(
       new THREE.BoxGeometry(ow, 0.2, od),
       new THREE.MeshLambertMaterial({ color: 0x120f0b })
@@ -886,13 +890,24 @@
     renderer.render(scene, camera);
   }
 
-  /* 相机距离自适应画布比例：横竖两个方向都刚好容下棋盘，避免大片留白 */
+  /* 相机距离自适应画布比例：按当前偏航/俯仰算出地图（含边缘格子）的外接取景框，
+     横竖两个方向都刚好容下，避免大片留白 —— 地图填满画布，旋转时也不会跑出画面。 */
+  function viewBox() {
+    var cy = Math.abs(Math.cos(camYaw)), sy = Math.abs(Math.sin(camYaw));
+    return {
+      w: (MAP_W * cy + MAP_D * sy) * VIEW_PAD,
+      d: (MAP_D * cy + MAP_W * sy) * VIEW_PAD
+    };
+  }
   function fitDistance() {
     var w = canvas.clientWidth, h = canvas.clientHeight;
     if (!w || !h) return camDist;
     var tan = Math.tan(camera.fov * Math.PI / 360);
-    var dH = (VIEW_H / 2) / tan;
-    var dW = (VIEW_W / 2) / tan / (w / h);
+    var vb = viewBox();
+    /* 俯仰角越小，地面纵深在画面上被压缩得越厉害，这里按 sin 折算并给下限 */
+    var sp = SG.util.clamp(Math.sin(camPitch), 0.5, 1);
+    var dH = (vb.d * sp / 2) / tan;
+    var dW = (vb.w / 2) / tan / (w / h);
     return Math.max(dH, dW) * camZoom;
   }
 
@@ -917,6 +932,7 @@
       camYaw -= (e.clientX - drag.x) * 0.006;
       camPitch = SG.util.clamp(camPitch + (e.clientY - drag.y) * 0.004, 0.3, 1.35);
       drag = { x: e.clientX, y: e.clientY };
+      camDist = fitDistance();           // 转动后重新取景，保证地图始终在画面内
       return;
     }
     if (!canvas.clientWidth) return;

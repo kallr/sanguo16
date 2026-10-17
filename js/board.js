@@ -15,9 +15,8 @@
      因此这里用惰性查询，保证 3D 模式下未 init 也能正常弹提示。 */
   function tipEl() { return tooltipEl || (tooltipEl = SG.$('#tooltip')); }
 
-  /* 百分比定位（每格 = 100/11 %）*/
-  var CELL = 100 / C.BOARD_W;
-  function pct(n) { return (n * CELL) + '%'; }
+  /* 百分比定位：SG.data.tileXY 直接给出盘面百分比，用 left/top 定位到格心 */
+  function pct(n) { return n + '%'; }
 
   /* ---- 格子台基高度（px）----
      城池按等级长高形成错落地基，关隘略低，其余类型只有薄台基。
@@ -51,7 +50,7 @@
     }
     /* 河流：先画水带，后面的石板路会盖过去（形成过河的桥） */
     var rp = D.riverPoints();
-    ctx.lineWidth = 0.47 / D.MAP_W * W;
+    ctx.lineWidth = 0.64 / D.MAP_W * W;
     ctx.strokeStyle = '#3f7f96';
     ctx.beginPath();
     rp.forEach(function (p, i) {
